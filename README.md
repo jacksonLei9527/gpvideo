@@ -1,93 +1,203 @@
-# mg-recut
+# 赛车录像高光剪辑工具链
 
+从一段赛车比赛录像里自动找出精彩时刻，剪成一条 720p 高光视频。
+全部基于本机已装的 `ffmpeg`，纯 Python 标准库，**不需要装 numpy 或任何第三方包**。
 
+## 最快上手（一条命令）
 
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.wizmacau.com/jackson/mg-recut.git
-git branch -M main
-git push -uf origin main
+```bash
+python3 make_highlight.py 你的录像.mkv --minutes 8 --height 720
 ```
 
-## Integrate with your tools
+这条命令会自动跑完「探测 → 剪出 → 转 720p 合成」。
+其余三个脚本可以单独用，用于更精细的控制。
 
-* [Set up project integrations](https://gitlab.wizmacau.com/jackson/mg-recut/-/settings/integrations)
+## 为什么不用单纯的"音量尖峰"
 
-## Collaborate with your team
+最直觉的做法是"观众欢呼时音量会飙高，所以抓音量尖峰"。
+**实测证明这对赛车视频无效**：赛车音轨大部分时间是持续高位的引擎轰鸣，
+能量长期处于高位，峰值检测会被引擎噪音淹没，找出来的候选基本是噪音。
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+改用**画面活动量**作主信号：转播在精彩时刻会切镜头、放慢动作回放、插名次板，
+表现为帧间差异像素量骤增。实现上用 ffmpeg `scdet` 滤镜逐帧输出
+`lavfi.scd.mafd`（平均绝对帧间差），取**连续数值曲线**而非阈值事件——
+连续数值可以自适应，不用猜一个固定阈值。
 
-## Test and Deploy
+## 四个脚本
 
-Use the built-in continuous integration in GitLab.
+### 0. `make_highlight.py` —— 一键出片（推荐入口）
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+```bash
+python3 make_highlight.py race.mkv                        # 默认 720p / 8 分钟
+python3 make_highlight.py race.mkv --minutes 8 --height 720
+python3 make_highlight.py race.mkv --detect-only --thumbs  # 先看候选质量
+python3 make_highlight.py race.mkv --skip-detect --pick 2,5,7,9  # 人工挑好段再合成
+```
 
-***
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--minutes` | 8 | 目标时长 |
+| `--height` | 720 | 输出高度，宽度按 16:9 自动推导 |
+| `--crf` | 21 | 输出质量，越小越好 |
+| `--detect-only` | — | 只探测不剪辑，用于先评估候选 |
+| `--skip-detect` | — | 跳过探测，配 `--pick` 用 |
 
-# Editing this README
+### 1. `race_detect.py` —— 找出高光候选
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```bash
+python3 race_detect.py race.mp4                     # 基本用法
+python3 race_detect.py race.mp4 --json hl.json --thumbs   # 存候选 + 出缩略图
+python3 race_detect.py race.mp4 --target 480        # 目标总长 8 分钟
+```
 
-## Suggestions for a good README
+输出候选段列表（起止时间码、时长、活动量、峰值、类型），并可选写 JSON。
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+关键参数：
 
-## Name
-Choose a self-explaining name for your project.
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--k` | 3.0 | 自适应阈值倍数。**找不够就降到 2.0**，噪音太多就升到 4.0 |
+| `--target` | 0 | 目标总时长秒数，480 = 8 分钟。0 = 不限 |
+| `--min-dur` | 3.0 | 候选段最短时长，过滤单点毛刺 |
+| `--pad` | 4.0 | 每段前后留白，避免把精彩瞬间切在边界上 |
+| `--top` | 25 | 最多候选段数 |
+| `--scale` | 320 | 分析用缩放宽度，越小越快 |
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+**`--pad` 会显著影响能否凑准目标时长**：留白是每段两头都加，所以
+`--pad 4` 会把一段 120s 的真实高光变成 129s。若两段真实高光各 120s / 180s，
+加留白后变 129s / 189s，合计 318s 就塞不进 300s 的目标了，最后只能取一段。
+**想让成品贴近目标时长，先减小 `--pad`（比如 2）**，比调 `--k` 更直接。
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+凑不到目标时长时脚本会明确告警，不会静默交一个短成品。
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+### 2. `extract_clips.py` —— 把选中的段剪出来
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```bash
+# 从探测结果里按序号挑（推荐）
+python3 extract_clips.py race.mp4 --from-json hl.json --pick 1,3,5-7
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+# 或直接给时间码
+python3 extract_clips.py race.mp4 -c 00:12:30-00:13:05 -c 01:02:10-01:02:48
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+**`--mode smart`（默认）是关键**：先探测源文件关键帧间隔，切点能落在关键帧附近就用流复制
+（极快、零损失），否则自动改用重编码保证精确。剪完还会校验实际时长，漂移超限就自动重剪。
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+为什么必须这样：`-c copy` 的切点只能落在关键帧上，切点被吸附会导致实际时长比请求的长。
+实测某素材**请求剪 25s 得到 31.1s**，偏差 6 秒足以错过超车瞬间。
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+**VFR 自动检测**：脚本会实测源文件 PTS 间隔的变异系数，判断是否可变帧率。
+OBS 默认录制常产出 VFR，而采集卡多为 CFR，两者混用会让流复制切割音画不同步。
+检出 VFR 会自动改用重编码重建均匀时间轴。
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+注意：**ffprobe 的 `r_frame_rate`/`avg_frame_rate` 元数据会撒谎**——
+实测有文件元数据声称恒定 30fps，实际 PTS 间隔在 0.0667 和 0.1667 之间跳变。
+所以本工具用实测 PTS 而非元数据判断。经验阈值：CFR 的变异系数 < 0.03，VFR 通常 > 0.05。
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+### 3. `concat_clips.py` —— 合成一条完整视频
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```bash
+python3 concat_clips.py --manifest clips/clips_manifest.json -o highlight.mp4
+```
 
-## License
-For open source projects, say how it is licensed.
+自动统一分辨率/帧率/音轨采样率后再拼接，避免不同来源片段直接 concat 导致的
+花屏或音画不同步。若所有片段本来就同源同参数，加 `--copy` 用流复制，快几十倍。
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+## 完整流程示例
+
+```bash
+cd ~/videos
+
+# ① 探测高光（先不加 --target，看看全片活动量分布）
+python3 race_detect.py race.mp4 --json hl.json --thumbs
+
+# ② 看 thumbs/ 里的缩略图人工确认，挑出想要的段
+#    比如候选里 #2 #5 #7 #9 是真正的超车/碰撞
+
+# ③ 剪出来
+python3 extract_clips.py race.mp4 --from-json hl.json --pick 2,5,7,9 --outdir clips
+
+# ④ 合成成品
+python3 concat_clips.py --manifest clips/clips_manifest.json -o highlight.mp4
+```
+
+## 采集卡工作流注意事项
+
+针对「赛车直播信号 → Blackmagic 采集卡 → OBS 录制 → Mac」这条链路：
+
+**格式支持已逐一验证**：H.264 / HEVC / ProRes / MJPEG / VP9 / AV1 全部可解码；
+MKV / MP4 / MOV / MPEG-TS / FLV 全部可封装；10bit（`yuv420p10le` /
+`yuv422p10le` / `p010le`）均支持。VideoToolbox 硬件加速可用。
+
+**性能实测**：2 分钟 1080p60（12 Mbps）分析耗时 **2.6 秒**
+（其中纯 ffmpeg 解码+scdet 占 2.28s，Python 开销仅 0.3s）。折算 1 小时约 78 秒。
+分析时缩放到 320px 宽，所以源分辨率越高影响越小。4K 素材预计 1 小时 3-5 分钟。
+
+**建议的 OBS 设置**（为了后续剪辑顺畅）：
+
+| 项 | 建议 | 原因 |
+|---|---|---|
+| 录制格式 | **MKV** | 中途崩溃不会整个文件损坏；剪完再转 MP4 |
+| 帧率类型 | **CFR（恒定帧率）** | VFR 会让流复制切割音画不同步 |
+| 编码器 | 硬件 NVENC/VideoToolbox | 长时间录制 CPU 压力小 |
+
+OBS 的 MKV 直接可用，无需先转封装（工具链原生支持 MKV）。
+若你的录制是 VFR，工具会自动检测并改用重编码，但会慢一些。
+
+## 验证情况
+
+用一个"人造赛车录像"做过端到端验证（`make_test_video.py` 可重新生成）：
+5 分钟视频，平静段 = 静止画面，已知高光在 60-75s 和 150-168s，
+高光段 = 持续运动画面 + 音量突然抬升。
+
+| 检查项 | 结果 |
+|---|---|
+| 活动量区分度 | 高光段 0.93 / 平静段 0.00-0.01（约 90 倍） |
+| 高光定位 | 精确找回 56-81s 和 146-174s（真值 60-75 / 150-168 加 4s 留白） |
+| 切割精度 | smart 模式偏差 **0.00s**（对比流复制 +6.1s） |
+| 成品内容 | 抽帧核验 6 个时间点，画面与"高光/平静"标签全部吻合 |
+| 均匀高活动素材 | 返回 0 候选，不硬凑 top N |
+| VFR 检测 | 5 个样本分离干净：CFR 变异系数 0.000-0.028 / VFR 0.072-0.435 |
+| 格式兼容 | OBS 的 MKV、采集卡的 10bit ProRes 均可处理 |
+
+**尚未在真实赛车录像上验证过**，因为工作目录里目前没有素材。
+真实素材的情况会更复杂（车载镜头持续晃动、转播叠加计时板、广告插播等），
+需要根据实际结果调 `--k`。
+
+## 和现成开源方案的关系
+
+如果你想要更成熟的替代品或补充，这两个是最相关的（均已实际查看过文档）：
+
+| 项目 | 定位 | 与本工具的关系 |
+|---|---|---|
+| [PySceneDetect](https://github.com/Breakthrough/PySceneDetect) | 成熟老牌的**场景切换检测**库/CLI，v0.7.2，BSD-3 | 见下 |
+| [auto-editor](https://github.com/WyattBlue/auto-editor) | 基于**音频响度**自动删静音/快剪 | 对"剪掉无聊段落"有用，但赛车全程有引擎声，判据不适用 |
+
+**PySceneDetect 和本工具解决的不是同一个问题**，值得说清楚：
+
+- PySceneDetect 做的是**找场景边界**：回答"哪里发生了一次镜头切换"。
+  它有 `detect-content`（帧间差异）、`detect-adaptive`（与邻帧比值）、
+  `detect-threshold`（找淡入淡出到黑），还有 `split-video` 直接切分、
+  `-s/--stats` 导出统计曲线供你画图调参。这部分比本工具成熟得多——
+  本工具的"镜头密度"信号其实就是 `scdet` 的简化用法。
+- 本工具做的是**给"精彩程度"排序并凑到指定时长**：用 1 秒分箱的活动量曲线、
+  自适应阈值找区间、按活动量排序、按 `--target` 选最优子集。PySceneDetect
+  没有"按精彩度排序"和"凑够 8 分钟"这两步——它只切分，不评分。
+
+所以两者是互补的。如果本工具的候选质量在真实素材上不理想，
+一个实用的组合是：**用 PySceneDetect 的 `--stats` 导出 `content_val` 曲线**，
+拿它当活动量信号的更细版本，再套本工具的排序/凑时长逻辑。
+
+装 PySceneDetect：`pip3 install scenedetect[opencv]`（需注意本机 Python 受
+PEP 668 保护，可能要加 `--break-system-packages` 或用 venv）。
+
+## 已知限制
+
+- **活动量信号对"全程均匀高活动"素材失效**。典型如车载固定机位全程高速行驶，
+  没有镜头切换也没有静止段作对比，此时探测不到高光，脚本会明确提示。
+  这种情况只能人工看缩略图选段。
+- **没做画面内容识别**。工具找的是"活动量异常"和"镜头切换密集"，
+  不能判断那段到底是超车还是普通过弯。最终取舍需要人看一眼缩略图。
+- **广告/插播会被当成高光**（因为画面突变），必要时手工排除。
+- **转播叠加的计时板/名次板会造成持续帧差**，把活动量基线整体抬高。
+  若发现全片活动量都偏高导致漏检，用 `--k 2.0` 降低阈值。

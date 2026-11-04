@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>raccut — Racing Highlights Auto-Edit</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: ui-monospace, Menlo, monospace; background:#0e0e10;
+         color:#ddd; margin:0; padding:14px 16px; }
+  .head { display:flex; justify-content:space-between; align-items:center;
+          max-width:1400px; margin:0 auto 10px; }
+  h1 { font-size:18px; margin:0; display:inline; }
+  h2 { font-size:12px; color:#888; font-weight:normal; margin:0 0 0 10px;
+       display:inline; }
+  h3 { font-size:11px; color:#888; margin:14px 0 6px; text-transform:uppercase;
+       letter-spacing:.05em; }
+  .grid { display:grid; grid-template-columns:360px 1fr; gap:12px;
+          max-width:1400px; margin:0 auto; align-items:start; }
+  @media (max-width:980px){ .grid{grid-template-columns:1fr;} }
+  .card { background:#17171a; border:1px solid #2a2a2e; border-radius:10px;
+          padding:12px; margin-bottom:12px; }
+  button { background:#0a84ff; color:#fff; border:0; border-radius:6px;
+           padding:6px 12px; cursor:pointer; font-family:inherit; font-size:12px; }
+  button.ghost { background:#2c2c30; }
+  select { background:#2c2c30; color:#ddd; border:1px solid #3a3a3e;
+           border-radius:6px; padding:4px 8px; font-family:inherit; font-size:12px; }
+  .bar { height:7px; background:#2a2a2e; border-radius:4px; overflow:hidden; }
+  .bar>div { height:100%; background:#30d158; width:0; transition:width .4s; }
+  .bar.up>div { background:#0a84ff; }
+  #drop { border:2px dashed #3a3a3e; border-radius:8px; padding:20px;
+          text-align:center; color:#777; cursor:pointer; transition:.2s;
+          font-size:12px; }
+  #drop.over { border-color:#0a84ff; color:#0a84ff; background:#0a84ff11; }
+  .stages { display:flex; flex-wrap:wrap; gap:4px; margin:8px 0; }
+  .stg { font-size:10px; padding:3px 7px; border-radius:10px; background:#232326;
+         color:#666; }
+  .stg.active { background:#0a84ff33; color:#0a84ff; }
+  .stg.done { background:#30d15822; color:#30d158; }
+  video { width:100%; border-radius:8px; background:#000; }
+  canvas#tl { width:100%; height:46px; display:block; }
+  table { width:100%; border-collapse:collapse; font-size:11px; }
+  td, th { text-align:left; padding:4px 6px; border-bottom:1px solid #232326; }
+  th { color:#777; font-weight:normal; }
+  tr.click { cursor:pointer; }
+  tr.click:hover td { background:#ffffff08; }
+  .tag { font-size:10px; padding:2px 6px; border-radius:8px; }
+  .tag.yes { background:#ff453a22; color:#ff453a; }
+  .tag.no { background:#30d15822; color:#30d158; }
+  .rev { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid #232326;
+         align-items:flex-start; font-size:11px; }
+  .rev img { width:110px; border-radius:5px; flex-shrink:0; }
+  .revwrap { max-height:280px; overflow-y:auto; }
+  .edlwrap { max-height:220px; overflow-y:auto; }
+  #edl tr.pending-removal td { background:#ff453a33; }
+  #editfeedback { display:none; padding:7px 9px; margin:6px 0;
+                  border-radius:6px; background:#30d15822; color:#30d158;
+                  font-size:11px; }
+  .muted { color:#666; font-size:11px; }
+  .ok { color:#30d158; } .bad { color:#ff453a; }
+  pre { white-space:pre-wrap; font-size:10px; color:#888; max-height:160px;
+        overflow:auto; background:#101012; padding:8px; border-radius:6px;
+        margin:0; }
+  pre#jlog { max-height:180px; }
+  a { color:#0a84ff; font-size:12px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .hist { display:flex; justify-content:space-between; padding:5px 4px;
+          border-bottom:1px solid #232326; font-size:11px; cursor:pointer; }
+  .hist:hover { background:#ffffff08; }
+  .hist .st { font-size:10px; }
+  .hist .st.done{color:#30d158}.hist .st.failed{color:#ff453a}
+  .hist .st.running{color:#0a84ff}
+  .stat { background:#101012; border-radius:6px; padding:6px 8px; font-size:10px;
+          color:#999; line-height:1.6; flex:1; min-width:140px; }
+  .placeholder { color:#555; font-size:12px; text-align:center; padding:60px 0;
+                 border:1px dashed #2a2a2e; border-radius:10px; }
+  .tblwrap { overflow-x:auto; }
+  .ptab { font-size:11px; padding:4px 10px; }
+  .ptab.on { background:#0a84ff; }
+  .ripple { position:fixed; border-radius:50%; background:#0a84ff55;
+            transform:translate(-50%,-50%) scale(0); pointer-events:none;
+            z-index:9999; animation:rip .55s ease-out forwards; }
+  @keyframes rip { to { transform:translate(-50%,-50%) scale(1); opacity:0; } }
+  .overlay { position:fixed; inset:0; background:#000a; z-index:10000;
+             display:flex; align-items:center; justify-content:center; }
+  .mbox { background:#1c1c1e; border:1px solid #3a3a3e; border-radius:12px;
+          padding:22px 26px; min-width:300px; max-width:90vw; text-align:center;
+          font-size:13px; }
+  .mbox .btns { display:flex; gap:12px; justify-content:center; margin-top:16px; }
+  tbody tr:hover { background:#1a1d2a; }
+</style>
+</head>
+<body>
+<div class="head">
+  <div><h1>raccut</h1><h2 data-i18n="subtitle"></h2></div>
+  <select id="lang">
+    <option value="zh-Hant">繁體中文</option>
+    <option value="zh-Hans">简体中文</option>
+    <option value="en">English</option>
+    <option value="pt">Português</option>
+  </select>
+</div>
+
+<div class="grid">
+  <!-- LEFT: control & monitoring -->
+  <div>
+    <div class="card">
+      <div id="drop" data-i18n="drop"></div>
+      <input type="file" id="file" accept="video/mp4" style="display:none">
+      <div id="upbar" class="bar up" style="margin-top:8px;display:none"><div></div></div>
+      <div id="uptext" class="muted" style="margin-top:5px"></div>
+      <video id="upreview" controls style="display:none;margin-top:8px"></video>
+    </div>
+
+    <div class="card" id="jobcard" style="display:none">
+      <div class="row" style="justify-content:space-between">
+        <b style="font-size:12px"><span data-i18n="job"></span> <span id="jid"></span></b>
+        <span class="muted" id="jtime"></span>
+      </div>
+      <div class="stages" id="stages"></div>
+      <div class="bar"><div id="jbar"></div></div>
+      <div class="muted" id="jstate" style="margin-top:5px"></div>
+      <div id="jdetail" style="margin-top:4px;font-size:11px;color:#0a84ff"></div>
+
+      <h3 data-i18n="metrics"></h3>
+      <div class="row" id="dash"></div>
+
+      <h3 data-i18n="log"></h3>
+      <pre id="jlog"></pre>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <b style="font-size:12px" data-i18n="history"></b>
+        <button class="ghost" onclick="loadJobs()" data-i18n="refresh"></button>
+      </div>
+      <div id="jobs" style="margin-top:6px"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: result -->
+  <div>
+    <div class="placeholder" id="noresult" data-i18n="noresult"></div>
+    <div class="card" id="result" style="display:none">
+      <div class="row" style="justify-content:space-between">
+        <b style="font-size:12px" data-i18n="result"></b>
+        <div class="row">
+          <button class="ghost" id="editbtn" data-i18n="edit"></button>
+          <a id="dl" href="#" download data-i18n="download"></a>
+        </div>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button class="ghost ptab on" id="tabfinal" onclick="playTab('final')"></button>
+        <button class="ghost ptab" id="tabsrc" onclick="playTab('source')"></button>
+        <span class="muted" id="playnote"></span>
+      </div>
+      <video id="player" controls></video>
+      <div id="qc" style="margin-top:6px;font-size:11px"></div>
+
+      <h3><span data-i18n="timeline"></span>
+          <span class="muted" style="text-transform:none" data-i18n="tllegend"></span></h3>
+      <canvas id="tl"></canvas>
+
+      <h3 data-i18n="edl"></h3>
+      <div id="editfeedback" role="status" aria-live="polite"></div>
+      <div class="edlwrap"><table id="edl"><thead><tr>
+        <th id="edlcol0"></th><th data-i18n="col_order"></th><th data-i18n="srcregion"></th>
+        <th data-i18n="duration"></th><th data-i18n="outpos"></th>
+      </tr></thead><tbody></tbody></table></div>
+
+      <div id="editbar" style="display:none;margin-top:8px">
+        <div class="row">
+          <button id="rerender" data-i18n="rerender"></button>
+          <span class="muted" id="edlsum"></span>
+        </div>
+        <h3 data-i18n="candidates"></h3>
+        <div class="edlwrap"><table id="cands"><thead><tr>
+          <th data-i18n="col_add"></th><th data-i18n="srcregion"></th>
+          <th data-i18n="duration"></th><th data-i18n="score"></th>
+        </tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <h3 data-i18n="reviews"></h3>
+      <div class="revwrap"><div id="reviews" class="muted"></div></div>
+
+      <h3 data-i18n="blocked"></h3>
+      <pre id="blocked"></pre>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="modal" style="display:none">
+  <div class="mbox">
+    <div id="mtext" style="white-space:pre-wrap"></div>
+    <strong id="mrange" style="display:none;color:#ffb340;font-size:16px;margin-top:10px"></strong>
+    <div class="btns">
+      <button class="ghost" id="mcancel" data-i18n="cancel" onclick="mCancel()"></button>
+      <button id="mok" data-i18n="ok" onclick="mOk()"></button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const STAGE_NAMES = ['probe','scenes','audio','vision','vlm','edl','render','qc'];
+
+const I18N = {
+  'zh-Hant': {
+    subtitle:'賽車集錦自動剪輯 · 1h → 8min',
+    drop:'拖入 mp4 上傳（或點擊選擇文件）',
+    uploading:'上傳中', uploaded:'已上傳', starting:'開始處理',
+    job:'任務', metrics:'運行指標', log:'實時日誌', history:'任務歷史', refresh:'刷新',
+    running:'正在執行', queued:'排隊中', done:'完成', failed:'失敗',
+    result:'成片', download:'下載 final.mp4', noresult:'尚無結果 · 上傳或點擊左側歷史任務查看',
+    qcpass:'✓ 自檢通過', qcfail:'✗ 自檢發現 {n} 處問題', outdur:'成片時長',
+    timeline:'源片時間線', tllegend:'（紅=封禁 · 綠=入選）',
+    edl:'EDL 切點（點擊行跳轉對應成片位置）',
+    srcregion:'源片區間', duration:'時長', outpos:'成片位置',
+    reviews:'VLM 二審記錄', blocked:'封禁區間',
+    noreviews:'無疑似段送審', noblocked:'（無封禁區間）',
+    cancel:'取消', ok:'確定', confirm_rm2:'確認?', confirm_rm:'確定刪除該片段？', removed:'已從 EDL 移除 {0}，可在候選池加回', added:'已加入', col_order:'序號', col_add:'加入', col_del:'刪除', tailnote:'（各封禁段已自動後延 45s 清理窗）',
+    edit:'編輯剪輯', candidates:'候選池（點 + 加回片段）', score:'分數',
+    rerender:'▶ 重新渲染', delhist:'刪除', confirm_del:'確定刪除該任務及其產物？',
+    block:'封禁', pass:'放行',
+    final:'成片', source:'源片', playhint:'點 EDL 行播放切片 · 點候選行跳源片',
+    iss_content:'畫面含疑似違禁內容', iss_black_frame:'切點附近出現黑幀/丟幀',
+    lg:{stStart:'階段 {0} 開始',stDone:'階段 {0} 完成（{1}s）',stFail:'階段 {0} 失敗（{1}s）',
+    scan:'掃描 {0}/{1} 幀，已標記 {2} 個嫌疑',range:'嫌疑段 {0}/{1} [{2}-{3}s {4}] → {5}',
+    vlmRanges:'VLM 二審：{0} 個嫌疑段',suspects:'{0} 個嫌疑幀',blocked:'{0} 個封禁區間',
+    scenes:'{0} 個鏡頭邊界',audio:'{0} 個音頻高光事件',meta:'時長 {0}s 分辨率 {1}x{2}',
+    jobStart:'任務開始：{0}',jobFail:'任務失敗：{0}',edl:'EDL：{0} 段，成片約 {1}s',
+    qc:'自檢{0}',frames:'抽幀完成：{0} 幀 @ {1}fps',vlmFail:'VLM 調用失敗 @{0}s：{1}',
+    rerender:'重新渲染：{0} 段',rrdone:'重新渲染完成',pass:'通過',fail:'發現問題'},
+
+    stage:{probe:'盤點',scenes:'場景切分',audio:'音頻高光',vision:'嫌疑檢測',
+           vlm:'VLM二審',edl:'EDL決策',render:'渲染',qc:'自檢'},
+  },
+  'zh-Hans': {
+    subtitle:'赛车集锦自动剪辑 · 1h → 8min',
+    drop:'拖入 mp4 上传（或点击选择文件）',
+    uploading:'上传中', uploaded:'已上传', starting:'开始处理',
+    job:'任务', metrics:'运行指标', log:'实时日志', history:'任务历史', refresh:'刷新',
+    running:'正在执行', queued:'排队中', done:'完成', failed:'失败',
+    result:'成片', download:'下载 final.mp4', noresult:'暂无结果 · 上传或点击左侧历史任务查看',
+    qcpass:'✓ 自检通过', qcfail:'✗ 自检发现 {n} 处问题', outdur:'成片时长',
+    timeline:'源片时间线', tllegend:'（红=封禁 · 绿=入选）',
+    edl:'EDL 切点（点击行跳转对应成片位置）',
+    srcregion:'源片区间', duration:'时长', outpos:'成片位置',
+    reviews:'VLM 二审记录', blocked:'封禁区间',
+    noreviews:'无疑似段送审', noblocked:'（无封禁区间）',
+    cancel:'取消', ok:'确定', confirm_rm2:'确认?', confirm_rm:'确定删除该片段？', removed:'已从 EDL 移除 {0}，可在候选池加回', added:'已加入', col_order:'序号', col_add:'加入', col_del:'删除', tailnote:'（各封禁段已自动后延 45s 清理窗）',
+    edit:'编辑剪辑', candidates:'候选池（点 + 加回片段）', score:'分数',
+    rerender:'▶ 重新渲染', delhist:'删除', confirm_del:'确定删除该任务及其产物？',
+    block:'封禁', pass:'放行',
+    final:'成片', source:'源片', playhint:'点 EDL 行播放切片 · 点候选行跳源片',
+    iss_content:'画面含疑似违禁内容', iss_black_frame:'切点附近出现黑帧/丢帧',
+    lg:{stStart:'阶段 {0} 开始',stDone:'阶段 {0} 完成（{1}s）',stFail:'阶段 {0} 失败（{1}s）',
+    scan:'扫描 {0}/{1} 帧，已标记 {2} 个嫌疑',range:'嫌疑段 {0}/{1} [{2}-{3}s {4}] → {5}',
+    vlmRanges:'VLM 二审：{0} 个嫌疑段',suspects:'{0} 个嫌疑帧',blocked:'{0} 个封禁区间',
+    scenes:'{0} 个镜头边界',audio:'{0} 个音频高光事件',meta:'时长 {0}s 分辨率 {1}x{2}',
+    jobStart:'任务开始：{0}',jobFail:'任务失败：{0}',edl:'EDL：{0} 段，成片约 {1}s',
+    qc:'自检{0}',frames:'抽帧完成：{0} 帧 @ {1}fps',vlmFail:'VLM 调用失败 @{0}s：{1}',
+    rerender:'重新渲染：{0} 段',rrdone:'重新渲染完成',pass:'通过',fail:'发现问题'},
+
+    stage:{probe:'盘点',scenes:'场景切分',audio:'音频高光',vision:'嫌疑检测',
+           vlm:'VLM二审',edl:'EDL决策',render:'渲染',qc:'自检'},
+  },
+  'en': {
+    subtitle:'Racing highlight cutter · 1h → 8min',
+    drop:'Drop an mp4 here (or click to choose)',
+    uploading:'Uploading', uploaded:'Uploaded', starting:'processing…',
+    job:'Job', metrics:'Metrics', log:'Live log', history:'Job history', refresh:'Refresh',
+    running:'Running', queued:'Queued', done:'Done', failed:'Failed',
+    result:'Final cut', download:'Download final.mp4', noresult:'No result · upload a video or pick a past job',
+    qcpass:'✓ QC passed', qcfail:'✗ QC found {n} issue(s)', outdur:'Duration',
+    timeline:'Source timeline', tllegend:'(red=blocked · green=selected)',
+    edl:'EDL cuts (click a row to jump in output)',
+    srcregion:'Source range', duration:'Length', outpos:'Output pos',
+    reviews:'VLM reviews', blocked:'Blocked ranges',
+    noreviews:'No suspect ranges reviewed', noblocked:'(no blocked ranges)',
+    cancel:'Cancel', ok:'OK', confirm_rm2:'sure?', confirm_rm:'Delete this clip?', removed:'Removed {0} from EDL; available in candidates', added:'added', col_order:'No.', col_add:'Add', col_del:'Del', tailnote:'(each blocked range auto-extends 45s cleanup tail)',
+    edit:'Edit cuts', candidates:'Candidate pool (click + to add)', score:'Score',
+    rerender:'▶ Re-render', delhist:'Delete', confirm_del:'Delete this job and its outputs?',
+    block:'BLOCKED', pass:'PASS',
+    final:'Final', source:'Source', playhint:'click EDL row to play clip · click candidate to jump to source',
+    iss_content:'suspect visual content', iss_black_frame:'black/dropped frame near a cut',
+    lg:{stStart:'stage {0} start',stDone:'stage {0} done in {1}s',stFail:'stage {0} FAILED after {1}s',
+    scan:'scanning {0}/{1} frames, {2} suspects',range:'range {0}/{1} [{2}-{3}s {4}] -> {5}',
+    vlmRanges:'VLM review: {0} suspect ranges',suspects:'{0} suspect frames',blocked:'{0} blocked ranges',
+    scenes:'{0} scene boundaries',audio:'{0} audio highlight events',meta:'duration {0}s {1}x{2}',
+    jobStart:'job start: {0}',jobFail:'job failed: {0}',edl:'EDL: {0} clips, ~{1}s output',
+    qc:'QC {0}',frames:'extracted {0} frames @ {1}fps',vlmFail:'VLM call failed @{0}s: {1}',
+    rerender:'re-render: {0} clips',rrdone:'re-render done',pass:'PASS',fail:'ISSUES FOUND'},
+
+    stage:{probe:'Probe',scenes:'Scenes',audio:'Audio',vision:'Suspects',
+           vlm:'VLM review',edl:'EDL',render:'Render',qc:'QC'},
+  },
+  'pt': {
+    subtitle:'Corte automático de highlights · 1h → 8min',
+    drop:'Arraste um mp4 aqui (ou clique para escolher)',
+    uploading:'Enviando', uploaded:'Enviado', starting:'processando…',
+    job:'Tarefa', metrics:'Métricas', log:'Log ao vivo', history:'Histórico', refresh:'Atualizar',
+    running:'Executando', queued:'Na fila', done:'Concluído', failed:'Falhou',
+    result:'Vídeo final', download:'Baixar final.mp4', noresult:'Sem resultado · envie um vídeo ou escolha uma tarefa',
+    qcpass:'✓ QC aprovado', qcfail:'✗ QC encontrou {n} problema(s)', outdur:'Duração',
+    timeline:'Linha do tempo', tllegend:'(vermelho=bloqueado · verde=selecionado)',
+    edl:'Cortes EDL (clique numa linha para saltar)',
+    srcregion:'Trecho da fonte', duration:'Duração', outpos:'Posição',
+    reviews:'Revisões VLM', blocked:'Trechos bloqueados',
+    noreviews:'Nenhum trecho suspeito', noblocked:'(sem bloqueios)',
+    cancel:'Cancelar', ok:'OK', confirm_rm2:'certeza?', confirm_rm:'Apagar este clipe?', removed:'Removido {0} da EDL; disponível nos candidatos', added:'adicionado', col_order:'Nº', col_add:'Add', col_del:'Del', tailnote:'(cada trecho bloqueado estende 45s de limpeza)',
+    edit:'Editar cortes', candidates:'Candidatos (clique + para adicionar)', score:'Score',
+    rerender:'▶ Renderizar', delhist:'Apagar', confirm_del:'Apagar esta tarefa e saídas?',
+    block:'BLOQUEADO', pass:'OK',
+    final:'Final', source:'Fonte', playhint:'clique na linha EDL para ver o clipe · candidato salta para a fonte',
+    iss_content:'conteúdo visual suspeito', iss_black_frame:'quadro preto/perdido num corte',
+    lg:{stStart:'etapa {0} iniciada',stDone:'etapa {0} concluída em {1}s',stFail:'etapa {0} FALHOU após {1}s',
+    scan:'analisando {0}/{1} quadros, {2} suspeitos',range:'trecho {0}/{1} [{2}-{3}s {4}] -> {5}',
+    vlmRanges:'Revisão VLM: {0} trechos suspeitos',suspects:'{0} quadros suspeitos',blocked:'{0} trechos bloqueados',
+    scenes:'{0} cortes de cena',audio:'{0} eventos de áudio',meta:'duração {0}s {1}x{2}',
+    jobStart:'tarefa iniciada: {0}',jobFail:'tarefa falhou: {0}',edl:'EDL: {0} clipes, ~{1}s',
+    qc:'QC {0}',frames:'{0} quadros extraídos @ {1}fps',vlmFail:'falha VLM @{0}s: {1}',
+    rerender:'re-render: {0} clipes',rrdone:'re-render concluído',pass:'OK',fail:'PROBLEMAS'},
+
+    stage:{probe:'Inspeção',scenes:'Cenas',audio:'Áudio',vision:'Suspeitos',
+           vlm:'Revisão VLM',edl:'EDL',render:'Render',qc:'QC'},
+  },
+};
+
+let LANG = localStorage.getItem('raccut_lang') || 'zh-Hant';
+if (!I18N[LANG]) LANG = 'en';
+const T = k => I18N[LANG][k] ?? I18N.en[k] ?? k;
+const STAGE_LABEL = k => T('stage')[k] || k;
+
+function applyLang(){
+  document.querySelectorAll('[data-i18n]').forEach(el => el.textContent = T(el.dataset.i18n));
+  document.documentElement.lang = LANG;
+}
+$('#lang').value = LANG;
+$('#lang').onchange = e => { LANG=e.target.value;
+  localStorage.setItem('raccut_lang',LANG); applyLang();
+  if(editMode){ renderEdl(customEdl); renderCands(); }
+};
+
+const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+
+// ---- localized log line translation (backend logs are English patterns)
+const LG = k => (I18N[LANG].lg||{})[k] || (I18N.en.lg||{})[k] || k;
+const S = (tpl,...a) => tpl.replace(/\{(\d)\}/g,(_,i)=>a[i]);
+const LOGRULES = [
+ [/-- stage (\w+) start$/, m=>S(LG('stStart'),STAGE_LABEL(m[1]))],
+ [/-- stage (\w+) done in ([\d.]+)s$/, m=>S(LG('stDone'),STAGE_LABEL(m[1]),m[2])],
+ [/-- stage (\w+) FAILED after ([\d.]+)s$/, m=>S(LG('stFail'),STAGE_LABEL(m[1]),m[2])],
+ [/^scanning (\d+)\/(\d+) frames, (\d+) suspects so far$/, m=>S(LG('scan'),m[1],m[2],m[3])],
+ [/^range (\d+)\/(\d+) \[([\d.]+)-([\d.]+)s ([^\]]*)\] -> (\w+)$/, m=>S(LG('range'),m[1],m[2],m[3],m[4],m[5],m[6])],
+ [/^VLM review: (\d+) suspect ranges$/, m=>S(LG('vlmRanges'),m[1])],
+ [/^(\d+) suspect frames$/, m=>S(LG('suspects'),m[1])],
+ [/^(\d+) blocked ranges$/, m=>S(LG('blocked'),m[1])],
+ [/^(\d+) scene boundaries$/, m=>S(LG('scenes'),m[1])],
+ [/^(\d+) audio highlight events$/, m=>S(LG('audio'),m[1])],
+ [/^duration ([\d.]+)s (\d+)x(\d+)$/, m=>S(LG('meta'),m[1],m[2],m[3])],
+ [/^job start: (.*)$/, m=>S(LG('jobStart'),m[1])],
+ [/^job failed: (.*)$/, m=>S(LG('jobFail'),m[1])],
+ [/^EDL: (\d+) clips, ~([\d.]+)s output$/, m=>S(LG('edl'),m[1],m[2])],
+ [/^QC (PASS|ISSUES FOUND)$/, m=>S(LG('qc'),LG(m[1]==='PASS'?'pass':'fail'))],
+ [/^extracted (\d+) frames @ (\d+)fps$/, m=>S(LG('frames'),m[1],m[2])],
+ [/^VLM call failed @([\d.]+)s: (.*)$/, m=>S(LG('vlmFail'),m[1],m[2])],
+ [/^re-render: (\d+) clips$/, m=>S(LG('rerender'),m[1])],
+ [/^re-render done$/, ()=>LG('rrdone')],
+];
+function tlog(line){
+  const ts=line.match(/^(\d+:\d+:\d+)\s?(.*)$/);
+  const pre=ts?ts[1]+' ':'', body=ts?ts[2]:line;
+  for(const[re,fn]of LOGRULES){
+    const m=body.match(re);
+    if(m) return pre+fn(m);
+  }
+  return line;
+}
+const fmtdate = t => new Date(t*1000).toLocaleString(undefined,
+  {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+let pollTimer=null, dashTimer=null, t0=0, curJob=null;
+
+let previewURL=null;
+function upload(file){
+  // instant local preview of the uploaded mp4 (no server round-trip)
+  if(previewURL) URL.revokeObjectURL(previewURL);
+  previewURL=URL.createObjectURL(file);
+  const pv=$('#upreview');
+  pv.src=previewURL; pv.style.display='block';
+  $('#upbar').style.display='block';
+  const xhr=new XMLHttpRequest();
+  xhr.open('POST','/api/jobs/upload');
+  xhr.upload.onprogress=e=>{ if(e.lengthComputable){
+    const p=e.loaded/e.total*100;
+    $('#upbar div').style.width=p+'%';
+    $('#uptext').textContent=`${T('uploading')} ${p.toFixed(0)}%（${(e.loaded/1e6).toFixed(0)}MB）`;
+  }};
+  xhr.onload=()=>{
+    $('#uptext').textContent=`${T('uploaded')}：${file.name} · ${T('starting')}`;
+    const j=JSON.parse(xhr.responseText);
+    j.job_id ? watch(j.job_id) : alert(j.error);
+  };
+  const fd=new FormData(); fd.append('f',file); xhr.send(fd);
+}
+
+function drawStages(cur,state,times){
+  times=times||{};
+  $('#stages').innerHTML=STAGE_NAMES.map(s=>{
+    let cls='stg';
+    if(state==='done') cls+=' done';
+    else if(s===cur) cls+=' active';
+    else if(STAGE_NAMES.indexOf(s)<STAGE_NAMES.indexOf(cur)) cls+=' done';
+    const t=times[s]!=null?` ${times[s]}s`:'';
+    return `<span class="${cls}">${STAGE_LABEL(s)}${t}</span>`;
+  }).join('');
+}
+
+async function refreshDash(){
+  try{
+    const s=await (await fetch('/api/sys')).json();
+    $('#dash').innerHTML=`
+      <div class="stat">CPU ${s.cpu_pct}% · Mem ${s.mem_used_pct}%/${s.mem_total_gb}GB<br>
+      RSS ${s.proc_rss_mb}MB · Jobs ${s.jobs_running}</div>
+      <div class="stat" id="llmstat">${$('#llmstat')?.innerHTML||'LLM —'}</div>`;
+  }catch(e){}
+}
+function setLlmStat(txt){ const e=$('#llmstat'); if(e) e.innerHTML=txt; }
+
+function watch(id){
+  curJob=id;
+  $('#jobcard').style.display='block';
+  $('#jid').textContent=id; t0=Date.now();
+  clearInterval(pollTimer); clearInterval(dashTimer);
+  refreshDash(); dashTimer=setInterval(refreshDash,3000);
+  pollTimer=setInterval(async()=>{
+    const s=await (await fetch('/api/jobs/'+id)).json();
+    renderStatus(id,s);
+    if(s.state==='done'){
+      clearInterval(pollTimer); clearInterval(dashTimer);
+      $('#jdetail').textContent='';
+      showResult(id,s); loadJobs();
+    }
+    if(s.state==='failed'){
+      clearInterval(pollTimer); clearInterval(dashTimer);
+      $('#jstate').innerHTML=`<span class="bad">${T('failed')}：${s.error||''}</span>`;
+      loadJobs();
+    }
+  },2000);
+}
+
+function renderStatus(id,s){
+  $('#jbar').style.width=(s.pct||0)+'%';
+  $('#jstate').textContent=s.state==='running'
+    ?`${T('running')}：${STAGE_LABEL(s.stage)||s.stage}`:(T(s.state)||s.state);
+  $('#jtime').textContent=fmt((Date.now()-t0)/1000);
+  drawStages(s.stage,s.state,s.stage_times);
+  if(s.log_tail){
+    const lg=$('#jlog');
+    lg.textContent=s.log_tail.map(tlog).join('\n');
+    lg.scrollTop=lg.scrollHeight;
+  }
+  $('#jdetail').textContent=tlog(s.detail||'');
+  if(s.llm) setLlmStat(`LLM ${s.llm.calls} calls (${s.llm.images} img)<br>avg ${s.llm.avg_s}s · err ${s.llm.errors}`);
+}
+
+async function viewJob(id){
+  const s=await (await fetch('/api/jobs/'+id)).json();
+  if(curJob!==id){
+    editMode=false; editJob=null; editNotice=null;
+    $('#editbar').style.display='none';
+    $('#editbtn').textContent=T('edit');
+  }
+  if(s.state==='done'){ curJob=id; showResult(id,s); }
+  else if(s.state==='running'||s.state==='queued') watch(id);
+  else { curJob=id; $('#jobcard').style.display='block';
+    $('#jid').textContent=id; renderStatus(id,s); }
+}
+
+async function loadJobs(){
+  const list=await (await fetch('/api/jobs')).json();
+  $('#jobs').innerHTML=list.map(j=>
+    `<div class="hist">
+      <span onclick="viewJob('${j.id}')" style="flex:1">${j.id}${j.has_final?' 🎬':''}</span>
+      <span class="st ${j.state}">${j.state} ${j.pct||0}% · ${fmtdate(j.mtime)}</span>
+      <button class="ghost" style="padding:1px 7px;font-size:10px"
+        onclick="delJob('${j.id}',event)">✕</button>
+    </div>`).join('')||'<span class="muted">—</span>';
+}
+
+async function delJob(id,e){
+  e.stopPropagation();
+  askConfirm(T('confirm_del'), async ()=>{
+    const r=await (await fetch('/api/jobs/'+id,{method:'DELETE'})).json();
+    if(r.ok){
+      if(curJob===id){ $('#result').style.display='none';
+        $('#noresult').style.display='block'; $('#jobcard').style.display='none'; }
+      loadJobs();
+    } else alert(r.error);
+  });
+}
+
+async function showResult(id,status){
+  $('#noresult').style.display='none';
+  $('#result').style.display='block';
+  $('#dl').href=`/api/jobs/${id}/final.mp4`;
+
+  $('#tabfinal').textContent=T('final');
+  $('#tabsrc').textContent=T('source');
+  $('#playnote').textContent=T('playhint');
+  playTab('final');
+
+  const qc=status.qc||{};
+  $('#qc').innerHTML=qc.ok
+    ?`<span class="ok">${T('qcpass')}</span> · ${T('outdur')} ${fmt(qc.duration||0)}`
+    :`<span class="bad">${T('qcfail').replace('{n}',qc.issues?.length||0)}</span>
+      <pre>${(qc.issues||[]).map(i=>
+        `· ${fmt(i.t||0)} — ${T('iss_'+i.type)||i.desc||i.type}`).join('\n')}</pre>`;
+
+  const [meta,edl,blocked,reviews]=await Promise.all([
+    (await fetch(`/api/jobs/${id}/meta`)).json(),
+    (await fetch(`/api/jobs/${id}/edl`)).json(),
+    (await fetch(`/api/jobs/${id}/blocked`)).json(),
+    (await fetch(`/api/jobs/${id}/reviews`)).json(),
+  ]);
+  if(curJob!==id) return;
+  const yes=reviews.filter(r=>r.verdict?.verdict==='yes');
+  $('#blocked').textContent = yes.length
+    ? yes.map(r=>`[${fmt(r.start)} – ${fmt(r.end)}] `+
+        `${(r.flags||[]).join(',')} :: ${vreason(r.verdict)}`).join('\n')
+        + '\n' + T('tailnote')
+    : T('noblocked');
+  lastTl={dur:meta.duration||0,edl,
+          blk:reviews.filter(r=>r.verdict?.verdict==='yes')};
+  drawTimeline(lastTl.dur,editMode?customEdl:lastTl.edl,lastTl.blk);
+  if(!editMode) renderEdl(edl);
+  renderReviews(id,reviews);
+  $('#result').scrollIntoView({behavior:'smooth'});
+}
+
+let lastTl=null;
+window.addEventListener('resize',()=>{
+  if(lastTl&&$('#result').style.display!=='none')
+    drawTimeline(lastTl.dur,editMode?customEdl:lastTl.edl,lastTl.blk);
+});
+
+function playTab(kind){
+  $('#tabfinal').classList.toggle('on',kind==='final');
+  $('#tabsrc').classList.toggle('on',kind==='source');
+  $('#player').src=`/api/jobs/${curJob}/${kind}.mp4`;
+}
+
+function playSeg(i){
+  $('#tabfinal').classList.remove('on');
+  $('#tabsrc').classList.remove('on');
+  const p=$('#player');
+  p.src=`/api/jobs/${curJob}/segs/${i}.mp4`;
+  p.play();
+}
+
+function playAt(t){
+  const p=$('#player');
+  if(!p.src.includes('source.mp4')) playTab('source');
+  p.onloadedmetadata=()=>{ p.currentTime=t; p.play(); };
+  if(p.readyState>=1){ p.currentTime=t; p.play(); }
+}
+
+function drawTimeline(dur,edl,blockedRevs){
+  const c=$('#tl'),ctx=c.getContext('2d');
+  const W=c.width=c.offsetWidth*2,H=c.height=92;
+  ctx.clearRect(0,0,W,H);
+  if(!dur) return;
+  const x=t=>t/dur*W;
+  ctx.fillStyle='#232326'; ctx.fillRect(0,26,W,36);
+  ctx.fillStyle='#ff453a55';
+  blockedRevs.forEach(b=>ctx.fillRect(x(b.start),26,x(b.end)-x(b.start),36));
+  ctx.fillStyle='#30d158';
+  edl.forEach(c=>ctx.fillRect(x(c.start),22,Math.max(x(c.end)-x(c.start),3),44));
+  ctx.fillStyle='#666'; ctx.font='18px Menlo';
+  for(let m=0;m<=dur;m+=600) ctx.fillText(fmt(m),x(m)+4,18);
+}
+
+let editMode=false, customEdl=[], candList=[], editJob=null, editNotice=null;
+let nextEdlSeq=1, pendingRow=null;
+const sameClip=(a,b)=>Math.abs(a.start-b.start)<0.001 &&
+  Math.abs(a.end-b.end)<0.001;
+function updateEditPreview(){
+  if(lastTl) drawTimeline(lastTl.dur,editMode?customEdl:lastTl.edl,lastTl.blk);
+}
+function showEditFeedback(){
+  const el=$('#editfeedback');
+  el.style.display=editMode && editNotice?'block':'none';
+  el.textContent=editNotice
+    ?I18N[LANG].removed.replace('{0}',`${fmt(editNotice.start)} – ${fmt(editNotice.end)}`)
+    :'';
+}
+
+function renderEdl(edl){
+  let out=0;
+  $('#edl tbody').innerHTML=edl.map((c,i)=>{
+    const pos=out; out+=c.end-c.start;
+    const del=editMode
+      ?`<button class="ghost" style="padding:1px 7px;font-size:10px"
+         onclick="rmClip(this,event)">✕</button>`:'';
+    const act = editMode ? `playAt(${c.start})` : `playSeg(${i})`;
+    return `<tr class="click" data-start="${c.start}" data-end="${c.end}" onclick="${act}">
+      <td>${editMode?del:''}</td><td>${editMode?c.seq:i+1}</td><td>${fmt(c.start)} – ${fmt(c.end)}</td>
+      <td>${(c.end-c.start).toFixed(1)}s</td><td>${fmt(pos)}</td></tr>`;
+  }).join('');
+  $('#edlcol0').textContent = editMode ? T('col_del') : '';
+  if(editMode){
+    const notice=editNotice
+      ?I18N[LANG].removed.replace('{0}',`${fmt(editNotice.start)} – ${fmt(editNotice.end)}`)
+      :'';
+    $('#edlsum').textContent=`${edl.length} clips · ${fmt(out)}${notice?' · '+notice:''}`;
+  }
+  showEditFeedback();
+  updateEditPreview();
+}
+
+function rmClip(button,e){
+  e.stopPropagation();
+  const row=button.closest('tr');
+  const c={start:Number(row.dataset.start),end:Number(row.dataset.end)};
+  const job=curJob;
+  askConfirm(T('confirm_rm'), ()=>{
+    if(!editMode || curJob!==job || editJob!==job) return;
+    const index=customEdl.findIndex(x=>sameClip(x,c));
+    if(index<0) return;
+    const [removed]=customEdl.splice(index,1);
+    const candidate=candList.find(x=>sameClip(x,c));
+    if(candidate) candidate.seq=removed.seq;
+    else candList.unshift({start:c.start,end:c.end,score:'–',seq:removed.seq});
+    editNotice=c;
+    renderEdl(customEdl);
+    renderCands();
+  },`${fmt(c.start)} – ${fmt(c.end)}`,row);
+}
+
+let _mcb=null;
+function askConfirm(msg,cb,range='',row=null){
+  _mcb=cb;
+  pendingRow=row;
+  if(row) row.classList.add('pending-removal');
+  $('#mtext').textContent=msg;
+  $('#mrange').textContent=range;
+  $('#mrange').style.display=range?'block':'none';
+  $('#modal').style.display='flex';
+}
+function closeConfirm(){
+  $('#modal').style.display='none';
+  if(pendingRow) pendingRow.classList.remove('pending-removal');
+  pendingRow=null;
+}
+function mCancel(){ closeConfirm(); _mcb=null; }
+function mOk(){
+  closeConfirm();
+  const cb=_mcb; _mcb=null; cb&&cb();
+}
+
+function candPlay(i,e){
+  e.stopPropagation();
+  playAt(candList[i].start);
+}
+
+function addClip(i){
+  const c=candList[i];
+  if(customEdl.some(x=>sameClip(x,c))) return;
+  customEdl.push({start:c.start,end:c.end,seq:c.seq||nextEdlSeq++});
+  customEdl.sort((a,b)=>a.start-b.start);
+  editNotice=null;
+  renderEdl(customEdl); renderCands();
+  const t=$('#edl');
+  t.style.outline='2px solid #30d158';
+  setTimeout(()=>t.style.outline='',400);
+}
+
+function renderCands(){
+  $('#cands tbody').innerHTML=candList.map((c,i)=>{
+    const added=customEdl.some(x=>sameClip(x,c));
+    return `<tr class="click" onclick="candPlay(${i},event)" ${added?'style="opacity:.45"':''}>
+      <td>${added
+        ?`<span class="tag no">✓ ${T('added')}</span>`
+        :`<button class="ghost" style="padding:1px 8px;font-size:11px"
+           onclick="addClip(${i});event.stopPropagation()">+</button>`}</td>
+      <td>${fmt(c.start)} – ${fmt(c.end)}</td>
+      <td>${(c.end-c.start).toFixed(1)}s</td><td>${c.score}</td></tr>`;
+  }).join('');
+}
+
+async function toggleEdit(){
+  if(!editMode){
+    const job=curJob;
+    const [cands,edl]=await Promise.all([
+      fetch(`/api/jobs/${job}/candidates`).then(r=>r.json()),
+      fetch(`/api/jobs/${job}/edl`).then(r=>r.json())
+    ]);
+    if(curJob!==job || !Array.isArray(cands) || !Array.isArray(edl)) return;
+    candList=cands;
+    customEdl=edl.map((c,i)=>({start:c.start,end:c.end,seq:i+1}));
+    nextEdlSeq=edl.length+1;
+    editJob=job;
+    editMode=true;
+    editNotice=null;
+    $('#editbar').style.display='block';
+    $('#editbtn').textContent='✕ '+T('edit');
+    renderCands(); renderEdl(customEdl);
+  } else {
+    editMode=false;
+    editJob=null;
+    editNotice=null;
+    $('#editbar').style.display='none';
+    $('#editbtn').textContent=T('edit');
+    showEditFeedback();
+    updateEditPreview();
+    const edl=await (await fetch(`/api/jobs/${curJob}/edl`)).json();
+    if(!editMode) renderEdl(edl);
+  }
+}
+
+async function rerender(){
+  if(!customEdl.length) return;
+  const r=await (await fetch(`/api/jobs/${curJob}/edl`,{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({edl:customEdl})})).json();
+  if(r.ok){ editMode=false; editJob=null; editNotice=null; $('#editbar').style.display='none';
+    $('#editbtn').textContent=T('edit'); watch(curJob); }
+  else alert(r.error);
+}
+
+function vreason(v){
+  if(!v) return '';
+  const k='reason_'+LANG.replace('-','_').toLowerCase();
+  return v[k] || v.reason || v.reason_en || '';
+}
+
+function renderReviews(id,reviews){
+  if(!reviews.length){ $('#reviews').textContent=T('noreviews'); return; }
+  $('#reviews').innerHTML=reviews.map(r=>{
+    const img=r.frames?.length
+      ?`/api/jobs/${id}/frames/${r.frames[0].split('/').pop()}`:'';
+    const v=r.verdict?.verdict==='yes';
+    return `<div class="rev">
+      ${img?`<img src="${img}" loading="lazy">`:''}
+      <div>
+        <span class="tag ${v?'yes':'no'}">${v?T('block'):T('pass')}</span>
+        <b>${fmt(r.start)} – ${fmt(r.end)}</b>
+        <span class="muted">${(r.flags||[]).join(', ')}</span>
+        <div class="muted">${vreason(r.verdict)}</div>
+      </div></div>`;
+  }).join('');
+}
+
+$('#editbtn').onclick=toggleEdit;
+$('#rerender').onclick=rerender;
+$('#drop').onclick=()=>$('#file').click();
+$('#file').onchange=e=>e.target.files[0]&&upload(e.target.files[0]);
+$('#drop').ondragover=e=>{e.preventDefault();$('#drop').classList.add('over');};
+$('#drop').ondragleave=()=>$('#drop').classList.remove('over');
+$('#drop').ondrop=e=>{e.preventDefault();$('#drop').classList.remove('over');
+  e.dataTransfer.files[0]&&upload(e.dataTransfer.files[0]);};
+
+// click ripple effect
+document.addEventListener('click',e=>{
+  const r=document.createElement('div');
+  r.className='ripple';
+  const sz=26;
+  r.style.cssText=`left:${e.clientX}px;top:${e.clientY}px;width:${sz}px;height:${sz}px`;
+  document.body.appendChild(r);
+  setTimeout(()=>r.remove(),600);
+});
+
+applyLang(); loadJobs();
+</script>
+</body>
+</html>

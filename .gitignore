@@ -1,0 +1,39 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python environments, caches, and bytecode
+**/.venv/
+**/venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local tools and operating system files
+.DS_Store
+.playwright-mcp/
+.plugins/
+
+# Source footage and rendered media
+old_videos/
+*.mp4
+*.m4v
+*.mkv
+*.mov
+*.avi
+*.webm
+*.mxf
+*.ts
+*.wav
+*.mp3
+*.aac
+
+# Generated application data and exports
+raccut/workdir/
+raccut/output/
+output/
+clips/
+thumbs/
