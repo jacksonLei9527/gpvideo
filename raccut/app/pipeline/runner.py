@@ -8,6 +8,7 @@ from .. import config
 from . import (stage0_probe, stage1_scenes, stage2_audio, stage3_vision,
                stage4_vlm, stage5_edl, stage6_render, stage7_qc)
 from .joblog import jlog
+from .cancel import JobCancelled, check_cancel, unregister_job
 
 STAGES = [
     ("probe", "盘点视频"),
@@ -15,6 +16,7 @@ STAGES = [
     ("audio", "音频高光分析"),
     ("vision", "视觉嫌疑检测"),
     ("vlm", "VLM 二审"),
+    ("classify", "比赛/采访/颁奖分类"),
     ("edl", "EDL 决策"),
     ("render", "渲染成片"),
     ("qc", "成片自检"),
@@ -44,11 +46,16 @@ def run_pipeline(video: Path, jobdir: Path, out_path: Path):
     jlog(jobdir, f"job start: {video}")
 
     def stage(name, pct, fn):
+        check_cancel(jobdir)
         job.set_status(stage=name, pct=pct)
         t = time.time()
         jlog(jobdir, f"-- stage {name} start")
         try:
             r = fn()
+            check_cancel(jobdir)
+        except JobCancelled:
+            jlog(jobdir, f"-- stage {name} cancelled after {time.time()-t:.1f}s")
+            raise
         except Exception:
             jlog(jobdir, f"-- stage {name} FAILED after {time.time()-t:.1f}s")
             raise
@@ -58,6 +65,7 @@ def run_pipeline(video: Path, jobdir: Path, out_path: Path):
         return r
 
     try:
+        check_cancel(jobdir)
         job.set_status(state="running", stage="probe", pct=2)
         info = stage("probe", 2, lambda: stage0_probe.run(video, jobdir))
         src = Path(info["video"])
@@ -80,25 +88,40 @@ def run_pipeline(video: Path, jobdir: Path, out_path: Path):
         (jobdir / "blocked.json").write_text(json.dumps(blocked, indent=2))
         jlog(jobdir, f"{len(blocked)} blocked ranges")
 
-        edl = stage("edl", 78,
+        stage("classify", 72,
+              lambda: stage4_vlm.classify_scenes(jobdir, scenes, vision))
+
+        motion_floor = job.status().get("min_action_motion")
+        edl = stage("edl", 80,
                     lambda: stage5_edl.run(jobdir, scenes, audio, blocked,
-                                           duration))
+                                           duration, motion_floor))
         jlog(jobdir, f"EDL: {len(edl)} clips, "
                      f"~{sum(c['end']-c['start'] for c in edl):.0f}s output")
 
-        stage("render", 85, lambda: stage6_render.run(src, edl, jobdir,
+        stage("render", 86, lambda: stage6_render.run(src, edl, jobdir,
                                                     out_path))
 
-        report = stage("qc", 95,
+        report = stage("qc", 96,
                        lambda: stage7_qc.run(out_path, edl, blocked, jobdir))
         jlog(jobdir, f"QC {'PASS' if report['ok'] else 'ISSUES FOUND'}")
 
         job.set_status(state="done", stage="done", pct=100,
                        final=str(out_path), qc=report,
+                       stage_times=stage_times, finished_at=time.time(),
+                       elapsed_seconds=max(0, time.time()-job.status().get("started_at", time.time())))
+    except JobCancelled:
+        jlog(jobdir, "job cancelled by user")
+        out_path.unlink(missing_ok=True)
+        now = time.time()
+        job.set_status(state="cancelled", stage="cancelled", finished_at=now,
+                       elapsed_seconds=max(0, now-job.status().get("started_at", now)),
                        stage_times=stage_times)
     except Exception as e:
         jlog(jobdir, f"job failed: {e}")
         job.set_status(state="failed", error=str(e),
                        trace=traceback.format_exc()[-2000:],
-                       stage_times=stage_times)
+                       stage_times=stage_times, finished_at=time.time(),
+                       elapsed_seconds=max(0, time.time()-job.status().get("started_at", time.time())))
         raise
+    finally:
+        unregister_job(jobdir.name)

@@ -23,6 +23,8 @@
   button { background:#0a84ff; color:#fff; border:0; border-radius:6px;
            padding:6px 12px; cursor:pointer; font-family:inherit; font-size:12px; }
   button.ghost { background:#2c2c30; }
+  input[type="number"] { background:#101012; color:#ddd; border:1px solid #3a3a3e;
+         border-radius:6px; padding:5px 7px; width:90px; font-family:inherit; }
   select { background:#2c2c30; color:#ddd; border:1px solid #3a3a3e;
            border-radius:6px; padding:4px 8px; font-family:inherit; font-size:12px; }
   .bar { height:7px; background:#2a2a2e; border-radius:4px; overflow:hidden; }
@@ -112,10 +114,25 @@
       <video id="upreview" controls style="display:none;margin-top:8px"></video>
     </div>
 
+    <div class="card" id="settings-card">
+      <div class="row" style="justify-content:space-between">
+        <b style="font-size:12px" data-i18n="settingsTitle"></b>
+        <span class="muted" id="motionSettingStatus" role="status" aria-live="polite"></span>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label for="motionFloor" class="muted" data-i18n="minActionMotion"></label>
+        <input id="motionFloor" type="number" min="0" max="255" step="0.5">
+        <button onclick="saveMotionSetting()" data-i18n="saveSetting"></button>
+        <button class="ghost" onclick="resetMotionSetting()" data-i18n="resetSetting"></button>
+      </div>
+      <div class="muted" style="margin-top:7px;line-height:1.6" data-i18n="motionHint"></div>
+    </div>
+
     <div class="card" id="jobcard" style="display:none">
       <div class="row" style="justify-content:space-between">
         <b style="font-size:12px"><span data-i18n="job"></span> <span id="jid"></span></b>
         <span class="muted" id="jtime"></span>
+        <button id="canceljob" style="display:none;background:#ff453a" onclick="cancelJob()" data-i18n="cancelTask"></button>
       </div>
       <div class="stages" id="stages"></div>
       <div class="bar"><div id="jbar"></div></div>
@@ -202,16 +219,16 @@
 
 <script>
 const $ = s => document.querySelector(s);
-const STAGE_NAMES = ['probe','scenes','audio','vision','vlm','edl','render','qc'];
+const STAGE_NAMES = ['probe','scenes','audio','vision','vlm','classify','edl','render','qc'];
 
 const I18N = {
   'zh-Hant': {
-    subtitle:'賽車集錦自動剪輯 · 1h → 8min',
+    subtitle:'賽車集錦自動剪輯 · 1h → 7min',
     drop:'拖入 mp4 上傳（或點擊選擇文件）',
     uploading:'上傳中', uploaded:'已上傳', starting:'開始處理',
-    job:'任務', metrics:'運行指標', log:'實時日誌', history:'任務歷史', refresh:'刷新',
-    running:'正在執行', queued:'排隊中', done:'完成', failed:'失敗',
-    result:'成片', download:'下載 final.mp4', noresult:'尚無結果 · 上傳或點擊左側歷史任務查看',
+    job:'任務', metrics:'運行指標', log:'實時日誌', history:'任務歷史', refresh:'刷新', settingsTitle:'剪輯設定', minActionMotion:'最低畫面運動分數', saveSetting:'保存', resetSetting:'恢復預設', settingsSaved:'已保存；新任務會使用此設定', settingsError:'設定保存失敗', motionHint:'分數來自 160×90 畫面每秒的影格差異，是車速的畫面代理，不是實際車速。數值越高，會排除更多低動態片段，素材不足時成片可能較短。預設 18；設為 0 可關閉運動畫面門檻，但安全車語意篩選仍會生效。',
+    running:'正在執行', queued:'排隊中', done:'完成', failed:'失敗', cancelled:'已中止', cancelTask:'中止任務', cancelling:'正在中止…', generationTime:'生成用時',
+    result:'成片', download:'下載成片', noresult:'尚無結果 · 上傳或點擊左側歷史任務查看',
     qcpass:'✓ 自檢通過', qcfail:'✗ 自檢發現 {n} 處問題', outdur:'成片時長',
     timeline:'源片時間線', tllegend:'（紅=封禁 · 綠=入選）',
     edl:'EDL 切點（點擊行跳轉對應成片位置）',
@@ -233,15 +250,15 @@ const I18N = {
     rerender:'重新渲染：{0} 段',rrdone:'重新渲染完成',pass:'通過',fail:'發現問題'},
 
     stage:{probe:'盤點',scenes:'場景切分',audio:'音頻高光',vision:'嫌疑檢測',
-           vlm:'VLM二審',edl:'EDL決策',render:'渲染',qc:'自檢'},
+           vlm:'VLM二審',classify:'比賽／訪問／頒獎分類',edl:'EDL決策',render:'渲染',qc:'自檢'},
   },
   'zh-Hans': {
-    subtitle:'赛车集锦自动剪辑 · 1h → 8min',
+    subtitle:'赛车集锦自动剪辑 · 1h → 7min',
     drop:'拖入 mp4 上传（或点击选择文件）',
     uploading:'上传中', uploaded:'已上传', starting:'开始处理',
-    job:'任务', metrics:'运行指标', log:'实时日志', history:'任务历史', refresh:'刷新',
-    running:'正在执行', queued:'排队中', done:'完成', failed:'失败',
-    result:'成片', download:'下载 final.mp4', noresult:'暂无结果 · 上传或点击左侧历史任务查看',
+    job:'任务', metrics:'运行指标', log:'实时日志', history:'任务历史', refresh:'刷新', settingsTitle:'剪辑设置', minActionMotion:'最低画面运动分数', saveSetting:'保存', resetSetting:'恢复默认', settingsSaved:'已保存；新任务会使用此设置', settingsError:'设置保存失败', motionHint:'分数来自 160×90 画面每秒的帧差异，是车速的画面代理，不是实际车速。数值越高，会排除更多低动态片段，素材不足时成片可能更短。默认 18；设为 0 可关闭运动画面门槛，但安全车语义筛选仍会生效。',
+    running:'正在执行', queued:'排队中', done:'完成', failed:'失败', cancelled:'已中止', cancelTask:'中止任务', cancelling:'正在中止…', generationTime:'生成用时',
+    result:'成片', download:'下载成片', noresult:'暂无结果 · 上传或点击左侧历史任务查看',
     qcpass:'✓ 自检通过', qcfail:'✗ 自检发现 {n} 处问题', outdur:'成片时长',
     timeline:'源片时间线', tllegend:'（红=封禁 · 绿=入选）',
     edl:'EDL 切点（点击行跳转对应成片位置）',
@@ -263,15 +280,15 @@ const I18N = {
     rerender:'重新渲染：{0} 段',rrdone:'重新渲染完成',pass:'通过',fail:'发现问题'},
 
     stage:{probe:'盘点',scenes:'场景切分',audio:'音频高光',vision:'嫌疑检测',
-           vlm:'VLM二审',edl:'EDL决策',render:'渲染',qc:'自检'},
+           vlm:'VLM二审',classify:'比赛／采访／颁奖分类',edl:'EDL决策',render:'渲染',qc:'自检'},
   },
   'en': {
-    subtitle:'Racing highlight cutter · 1h → 8min',
+    subtitle:'Racing highlight cutter · 1h → 7min',
     drop:'Drop an mp4 here (or click to choose)',
     uploading:'Uploading', uploaded:'Uploaded', starting:'processing…',
-    job:'Job', metrics:'Metrics', log:'Live log', history:'Job history', refresh:'Refresh',
-    running:'Running', queued:'Queued', done:'Done', failed:'Failed',
-    result:'Final cut', download:'Download final.mp4', noresult:'No result · upload a video or pick a past job',
+    job:'Job', metrics:'Metrics', log:'Live log', history:'Job history', refresh:'Refresh', settingsTitle:'Editing settings', minActionMotion:'Minimum visual-motion score', saveSetting:'Save', resetSetting:'Use default', settingsSaved:'Saved; applies to new jobs', settingsError:'Could not save setting', motionHint:'Measured as frame difference per second on 160×90 images; it is a visual proxy, not actual vehicle speed. Higher values exclude more low-motion clips and may produce a shorter video. Default: 18. Set 0 to disable the motion threshold; safety-car semantic filtering remains active.',
+    running:'Running', queued:'Queued', done:'Done', failed:'Failed', cancelled:'Cancelled', cancelTask:'Cancel job', cancelling:'Cancelling…', generationTime:'Generation time',
+    result:'Final cut', download:'Download video', noresult:'No result · upload a video or pick a past job',
     qcpass:'✓ QC passed', qcfail:'✗ QC found {n} issue(s)', outdur:'Duration',
     timeline:'Source timeline', tllegend:'(red=blocked · green=selected)',
     edl:'EDL cuts (click a row to jump in output)',
@@ -293,15 +310,15 @@ const I18N = {
     rerender:'re-render: {0} clips',rrdone:'re-render done',pass:'PASS',fail:'ISSUES FOUND'},
 
     stage:{probe:'Probe',scenes:'Scenes',audio:'Audio',vision:'Suspects',
-           vlm:'VLM review',edl:'EDL',render:'Render',qc:'QC'},
+           vlm:'VLM review',classify:'Race/interview/podium',edl:'EDL',render:'Render',qc:'QC'},
   },
   'pt': {
-    subtitle:'Corte automático de highlights · 1h → 8min',
+    subtitle:'Corte automático de highlights · 1h → 7min',
     drop:'Arraste um mp4 aqui (ou clique para escolher)',
     uploading:'Enviando', uploaded:'Enviado', starting:'processando…',
-    job:'Tarefa', metrics:'Métricas', log:'Log ao vivo', history:'Histórico', refresh:'Atualizar',
-    running:'Executando', queued:'Na fila', done:'Concluído', failed:'Falhou',
-    result:'Vídeo final', download:'Baixar final.mp4', noresult:'Sem resultado · envie um vídeo ou escolha uma tarefa',
+    job:'Tarefa', metrics:'Métricas', log:'Log ao vivo', history:'Histórico', refresh:'Atualizar', settingsTitle:'Configurações de edição', minActionMotion:'Movimento visual mínimo', saveSetting:'Salvar', resetSetting:'Usar padrão', settingsSaved:'Salvo; aplicado a novas tarefas', settingsError:'Falha ao salvar', motionHint:'Medido pela diferença entre quadros por segundo em imagens 160×90; é um indicador visual, não a velocidade real. Valores maiores excluem mais trechos lentos e podem encurtar o vídeo. Padrão: 18. Use 0 para desativar o limite de movimento; a filtragem semântica do safety car continua ativa.',
+    running:'Executando', queued:'Na fila', done:'Concluído', failed:'Falhou', cancelled:'Cancelada', cancelTask:'Cancelar tarefa', cancelling:'Cancelando…', generationTime:'Tempo de geração',
+    result:'Vídeo final', download:'Baixar vídeo', noresult:'Sem resultado · envie um vídeo ou escolha uma tarefa',
     qcpass:'✓ QC aprovado', qcfail:'✗ QC encontrou {n} problema(s)', outdur:'Duração',
     timeline:'Linha do tempo', tllegend:'(vermelho=bloqueado · verde=selecionado)',
     edl:'Cortes EDL (clique numa linha para saltar)',
@@ -323,7 +340,7 @@ const I18N = {
     rerender:'re-render: {0} clipes',rrdone:'re-render concluído',pass:'OK',fail:'PROBLEMAS'},
 
     stage:{probe:'Inspeção',scenes:'Cenas',audio:'Áudio',vision:'Suspeitos',
-           vlm:'Revisão VLM',edl:'EDL',render:'Render',qc:'QC'},
+           vlm:'Revisão VLM',classify:'Corrida/entrevista/pódio',edl:'EDL',render:'Render',qc:'QC'},
   },
 };
 
@@ -382,7 +399,40 @@ const fmtdate = t => new Date(t*1000).toLocaleString(undefined,
 let pollTimer=null, dashTimer=null, t0=0, curJob=null;
 
 let previewURL=null;
+async function loadMotionSetting(){
+  try{
+    const response=await fetch('/api/settings');
+    const settings=await response.json();
+    if(response.ok) $('#motionFloor').value=settings.min_action_motion;
+  }catch(e){ $('#motionSettingStatus').textContent=T('settingsError'); }
+}
+
+async function persistMotionSetting(payload){
+  const status=$('#motionSettingStatus');
+  status.textContent='';
+  try{
+    const response=await fetch('/api/settings',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const result=await response.json();
+    if(!response.ok) throw new Error(result.error||T('settingsError'));
+    $('#motionFloor').value=result.min_action_motion;
+    status.textContent=T('settingsSaved');
+  }catch(e){ status.textContent=`${T('settingsError')}: ${e.message}`; }
+}
+
+function saveMotionSetting(){
+  const value=Number($('#motionFloor').value);
+  if(!Number.isFinite(value)||value<0||value>255){
+    $('#motionSettingStatus').textContent=`${T('settingsError')} (0–255)`;
+    return;
+  }
+  persistMotionSetting({min_action_motion:value});
+}
+
+function resetMotionSetting(){ persistMotionSetting({reset:true}); }
+
 function upload(file){
+  const uploadStartedAt=Date.now()/1000;
   // instant local preview of the uploaded mp4 (no server round-trip)
   if(previewURL) URL.revokeObjectURL(previewURL);
   previewURL=URL.createObjectURL(file);
@@ -401,7 +451,7 @@ function upload(file){
     const j=JSON.parse(xhr.responseText);
     j.job_id ? watch(j.job_id) : alert(j.error);
   };
-  const fd=new FormData(); fd.append('f',file); xhr.send(fd);
+  const fd=new FormData(); fd.append('f',file); fd.append('started_at',String(uploadStartedAt)); xhr.send(fd);
 }
 
 function drawStages(cur,state,times){
@@ -427,33 +477,64 @@ async function refreshDash(){
 }
 function setLlmStat(txt){ const e=$('#llmstat'); if(e) e.innerHTML=txt; }
 
+function stopWatch(){
+  clearInterval(pollTimer); clearInterval(dashTimer);
+  pollTimer=null; dashTimer=null;
+}
+
+async function refreshJob(id){
+  try{
+    const s=await (await fetch('/api/jobs/'+id)).json();
+    if(curJob!==id || s.error) return;
+    renderStatus(id,s);
+    if(s.state==='done'){
+      stopWatch();
+      $('#jdetail').textContent='';
+      showResult(id,s); loadJobs();
+    } else if(s.state==='failed'||s.state==='cancelled'){
+      stopWatch();
+      $('#jstate').textContent=s.state==='failed'?`${T('failed')}：${s.error||''}`:T('cancelled');
+      $('#jstate').className=s.state==='failed'?'bad':'muted';
+      loadJobs();
+    }
+  }catch(e){}
+}
+
+async function cancelJob(){
+  if(!curJob) return;
+  const button=$('#canceljob'); button.disabled=true; button.textContent=T('cancelling');
+  try{
+    const response=await fetch(`/api/jobs/${curJob}/cancel`,{method:'POST'});
+    const data=await response.json();
+    if(!response.ok) throw new Error(data.error||'cancel failed');
+    refreshJob(curJob); loadJobs();
+  }catch(e){button.disabled=false;button.textContent=T('cancelTask');alert(e.message);}
+}
+
 function watch(id){
   curJob=id;
   $('#jobcard').style.display='block';
   $('#jid').textContent=id; t0=Date.now();
-  clearInterval(pollTimer); clearInterval(dashTimer);
+  stopWatch();
   refreshDash(); dashTimer=setInterval(refreshDash,3000);
-  pollTimer=setInterval(async()=>{
-    const s=await (await fetch('/api/jobs/'+id)).json();
-    renderStatus(id,s);
-    if(s.state==='done'){
-      clearInterval(pollTimer); clearInterval(dashTimer);
-      $('#jdetail').textContent='';
-      showResult(id,s); loadJobs();
-    }
-    if(s.state==='failed'){
-      clearInterval(pollTimer); clearInterval(dashTimer);
-      $('#jstate').innerHTML=`<span class="bad">${T('failed')}：${s.error||''}</span>`;
-      loadJobs();
-    }
-  },2000);
+  refreshJob(id); // populate progress immediately, including after a page refresh
+  pollTimer=setInterval(()=>refreshJob(id),2000);
 }
 
 function renderStatus(id,s){
   $('#jbar').style.width=(s.pct||0)+'%';
+  $('#jstate').className='muted';
   $('#jstate').textContent=s.state==='running'
     ?`${T('running')}：${STAGE_LABEL(s.stage)||s.stage}`:(T(s.state)||s.state);
-  $('#jtime').textContent=fmt((Date.now()-t0)/1000);
+  const startMs=Number(s.started_at)*1000 || t0;
+  const elapsed=s.finished_at && Number.isFinite(Number(s.elapsed_seconds))
+    ? Number(s.elapsed_seconds)
+    : Math.max(0,((s.finished_at?Number(s.finished_at)*1000:Date.now())-startMs)/1000);
+  $('#jtime').textContent=`${T('generationTime')} ${fmt(elapsed)}`;
+  const cancelButton=$('#canceljob');
+  cancelButton.style.display=['queued','running'].includes(s.state)?'inline-block':'none';
+  cancelButton.disabled=!!s.cancel_requested;
+  if(s.cancel_requested) cancelButton.textContent=T('cancelling'); else cancelButton.textContent=T('cancelTask');
   drawStages(s.stage,s.state,s.stage_times);
   if(s.log_tail){
     const lg=$('#jlog');
@@ -471,18 +552,35 @@ async function viewJob(id){
     $('#editbar').style.display='none';
     $('#editbtn').textContent=T('edit');
   }
-  if(s.state==='done'){ curJob=id; showResult(id,s); }
-  else if(s.state==='running'||s.state==='queued') watch(id);
-  else { curJob=id; $('#jobcard').style.display='block';
-    $('#jid').textContent=id; renderStatus(id,s); }
+  if(s.state==='running'||s.state==='queued') { watch(id); return; }
+  stopWatch();
+  curJob=id; t0=Date.now();
+  $('#jobcard').style.display='block';
+  $('#jid').textContent=id;
+  renderStatus(id,s);
+  if(s.state==='done') showResult(id,s);
+  else if(s.state==='failed'){
+    $('#jstate').textContent=`${T('failed')}：${s.error||''}`;
+    $('#jstate').className='bad';
+  }
+}
+
+function escapeHtml(value){
+  return String(value).replace(/[&<>"']/g, ch=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[ch]);
 }
 
 async function loadJobs(){
   const list=await (await fetch('/api/jobs')).json();
   $('#jobs').innerHTML=list.map(j=>
-    `<div class="hist">
-      <span onclick="viewJob('${j.id}')" style="flex:1">${j.id}${j.has_final?' 🎬':''}</span>
-      <span class="st ${j.state}">${j.state} ${j.pct||0}% · ${fmtdate(j.mtime)}</span>
+    `<div class="hist" role="button" tabindex="0" onclick="viewJob('${j.id}')"
+       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();viewJob('${j.id}')}">
+      <span style="flex:1;min-width:0;overflow:hidden">
+        <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(j.source_filename||j.id)}</strong>
+        <span class="muted">${escapeHtml(j.id)}${j.has_final?' · 🎬':''}</span>
+      </span>
+      <span class="st ${j.state}">${T(j.state)||j.state} ${j.pct||0}%${j.stage?' · '+STAGE_LABEL(j.stage):''}<br>${fmtdate(j.mtime)}<br>${T('generationTime')} ${fmt(j.elapsed_seconds||0)}</span>
       <button class="ghost" style="padding:1px 7px;font-size:10px"
         onclick="delJob('${j.id}',event)">✕</button>
     </div>`).join('')||'<span class="muted">—</span>';
@@ -503,7 +601,7 @@ async function delJob(id,e){
 async function showResult(id,status){
   $('#noresult').style.display='none';
   $('#result').style.display='block';
-  $('#dl').href=`/api/jobs/${id}/final.mp4`;
+  $('#dl').href=`/api/jobs/${id}/download`;
 
   $('#tabfinal').textContent=T('final');
   $('#tabsrc').textContent=T('source');
@@ -511,9 +609,10 @@ async function showResult(id,status){
   playTab('final');
 
   const qc=status.qc||{};
+  const generationTime=` · ${T('generationTime')} ${fmt(status.elapsed_seconds||0)}`;
   $('#qc').innerHTML=qc.ok
-    ?`<span class="ok">${T('qcpass')}</span> · ${T('outdur')} ${fmt(qc.duration||0)}`
-    :`<span class="bad">${T('qcfail').replace('{n}',qc.issues?.length||0)}</span>
+    ?`<span class="ok">${T('qcpass')}</span> · ${T('outdur')} ${fmt(qc.duration||0)}${generationTime}`
+    :`<span class="bad">${T('qcfail').replace('{n}',qc.issues?.length||0)}</span>${generationTime}
       <pre>${(qc.issues||[]).map(i=>
         `· ${fmt(i.t||0)} — ${T('iss_'+i.type)||i.desc||i.type}`).join('\n')}</pre>`;
 
@@ -770,7 +869,7 @@ document.addEventListener('click',e=>{
   setTimeout(()=>r.remove(),600);
 });
 
-applyLang(); loadJobs();
+applyLang(); loadJobs(); loadMotionSetting();
 </script>
 </body>
 </html>

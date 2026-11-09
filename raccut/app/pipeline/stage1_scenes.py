@@ -1,13 +1,16 @@
 """Stage 1: PySceneDetect shot boundaries -> scenes.json (legal cut points)."""
 import json
 from pathlib import Path
+from .cancel import check_cancel
 
 
 def run(video: Path, workdir: Path) -> list:
+    check_cancel(workdir)
     from scenedetect import detect, ContentDetector, open_video
 
     v = open_video(str(video))
     scenes = detect(str(video), ContentDetector(threshold=27.0), start_in_scene=True)
+    check_cancel(workdir)
     # Fallback: scenedetect API variants
     if not scenes:
         from scenedetect import SceneManager

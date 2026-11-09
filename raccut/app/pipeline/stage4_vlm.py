@@ -20,6 +20,7 @@ VLM_WORKERS = int(os.environ.get("RACCUT_VLM_WORKERS", "3"))
 from .. import config
 from .joblog import jlog
 from . import llmstats
+from .cancel import JobCancelled, check_cancel
 
 PROMPT = (
     "These are frames from a motorcycle/car racing broadcast. Answer strictly "
@@ -40,7 +41,46 @@ PROMPT = (
     "activity around it; normal racing footage."
 )
 
+def _wait_cancel(workdir: Path, seconds: float) -> None:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        check_cancel(workdir)
+        time.sleep(min(0.25, deadline - time.monotonic()))
+
+
 CLEANUP_TAIL_S = 45.0  # post-incident cleanup window
+
+SCENE_CLASSIFY_BATCH = 8
+SCENE_CLASSIFY_PROMPT = (
+    "Classify each numbered scene from these racing-broadcast frames. Frames "
+    "with the same scene ID are from one shot. Return only JSON in this "
+    "schema: {\"scenes\":[{\"scene_id\":0,\"category\":\"race_action\","
+    "\"action\":\"overtake\",\"confidence\":0.0}]}. Allowed categories: "
+    "race_action, podium, interview, pit, other. Allowed actions: overtake, "
+    "close_battle, pack_racing, race_start, race_finish, onboard, replay, safety_car, "
+    "unknown. Use race_action only for visually compelling competition: "
+    "overtakes, close battles, pack racing, starts/finishes, or an engaging "
+    "onboard. A distant lone vehicle circulating without a contest is other. "
+    "Replays count only when they show an exciting racing moment. Identify a safety car when a "
+    "roof-mounted flashing beacon or light bar is visible AND that car is leading a pack with race cars "
+    "following. When both cues are visible, label category other and action safety_car even if many cars "
+    "are in frame. Do not classify a neutralized procession, formation lap, or yellow-flag controlled-speed "
+    "following as race_action or pack_racing. A group of cars alone or an unclear roof light is not enough; "
+    "require visible high-speed competition, close battles, or overtaking for race_action. Use interview for a driver, "
+    "team member, or reporter speaking to camera or another person rather "
+    "than showing active competition, even if wearing racing "
+    "gear. Use pit for garage, pit-lane service, or stationary preparations. "
+    "Use podium only for the actual post-race podium/award ceremony with "
+    "winners, trophies, or champagne; post-race interviews are interviews. "
+    "Do not infer action from graphics or a person merely wearing a helmet. "
+    "Set confidence from 0 to 1; use other/unknown when uncertain. Include "
+    "exactly one result for every scene ID provided."
+)
+SCENE_CATEGORIES = {"race_action", "podium", "interview", "pit", "other"}
+
+
+class SceneClassificationFormatError(ValueError):
+    """A successful API response could not be mapped reliably to scene IDs."""
 
 
 def _b64(path: Path) -> str:
@@ -48,6 +88,7 @@ def _b64(path: Path) -> str:
 
 
 def _call_vlm(workdir: Path, images: list[Path]) -> dict:
+    check_cancel(workdir)
     key = config.load_openrouter_key()
     content = [{"type": "text", "text": PROMPT}]
     for p in images:
@@ -59,6 +100,7 @@ def _call_vlm(workdir: Path, images: list[Path]) -> dict:
     with llmstats.timer() as t:
         err = None
         for attempt in range(5):
+            check_cancel(workdir)
             try:
                 r = httpx.post(
                     config.OPENROUTER_BASE,
@@ -66,8 +108,9 @@ def _call_vlm(workdir: Path, images: list[Path]) -> dict:
                     json={"model": config.VLM_MODEL,
                           "messages": [{"role": "user", "content": content}],
                           "temperature": 0},
-                    timeout=120,
+                    timeout=30,
                 )
+                check_cancel(workdir)
                 r.raise_for_status()
                 break
             except Exception as e:
@@ -77,7 +120,7 @@ def _call_vlm(workdir: Path, images: list[Path]) -> dict:
                     ra = resp.headers.get("retry-after")
                     wait = int(ra) if ra and ra.isdigit() else \
                         min(60, 8 * (attempt + 1))
-                    time.sleep(wait)
+                    _wait_cancel(workdir, wait)
                     continue
                 if attempt == 0:
                     continue  # one free retry for transient errors
@@ -125,6 +168,209 @@ def _sample(frames: list, n: int = 4) -> list:
     return [frames[int(i * step)] for i in range(n)]
 
 
+def _json_object(text: str) -> dict:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end < start:
+        raise ValueError("model response did not contain a JSON object")
+    return json.loads(text[start:end + 1])
+
+
+def _json_fallback(value):
+    """Serialize filesystem and numeric scalar values safely in job artifacts."""
+    if isinstance(value, os.PathLike):
+        return os.fspath(value)
+    item = getattr(value, "item", None)
+    if callable(item):
+        return item()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _classify_scene_batch(workdir: Path, batch: list) -> list:
+    check_cancel(workdir)
+    key = config.load_openrouter_key()
+    content = [{"type": "text", "text": SCENE_CLASSIFY_PROMPT}]
+    n_images = 0
+    for item in batch:
+        for frame in item["frames"]:
+            content.append({"type": "text", "text": f"Scene ID {item['scene_id']} reference frame:"})
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{_b64(frame)}"},
+            })
+            n_images += 1
+
+    with llmstats.timer() as timer:
+        try:
+            response = None
+            error = None
+            for attempt in range(5):
+                check_cancel(workdir)
+                try:
+                    response = httpx.post(
+                        config.OPENROUTER_BASE,
+                        headers={"Authorization": f"Bearer {key}"},
+                        json={"model": config.VLM_MODEL,
+                              "messages": [{"role": "user", "content": content}],
+                              "temperature": 0, "max_tokens": 1600},
+                        timeout=30,
+                    )
+                    check_cancel(workdir)
+                    response.raise_for_status()
+                    break
+                except Exception as exc:
+                    error = exc
+                    resp = getattr(exc, "response", None)
+                    if resp is not None and resp.status_code == 429:
+                        retry_after = resp.headers.get("retry-after")
+                        wait = int(retry_after) if retry_after and retry_after.isdigit() \
+                            else min(30, 2 ** (attempt + 1))
+                        _wait_cancel(workdir, wait)
+                    elif attempt < 4:
+                        _wait_cancel(workdir, min(8, 2 ** attempt))
+            else:
+                raise error
+            try:
+                parsed = _json_object(
+                    response.json()["choices"][0]["message"]["content"])
+                rows = parsed.get("scenes") if isinstance(parsed, dict) else None
+                if not isinstance(rows, list):
+                    raise ValueError("response has no scenes list")
+            except Exception as exc:
+                raise SceneClassificationFormatError(str(exc)) from exc
+            llmstats.record(workdir, "scene_classification", n_images,
+                            timer.latency, True)
+            return rows
+        except Exception:
+            llmstats.record(workdir, "scene_classification", n_images,
+                            timer.latency, False)
+            raise
+
+
+def classify_scenes(workdir: Path, scenes: list, vision: dict) -> list:
+    """Label each usable shot so interviews cannot enter the highlight EDL."""
+    frame_paths = sorted((workdir / "frames").glob("f*.jpg"))
+    fps = max(1, int(vision.get("fps", 1)))
+    samples = []
+    for scene_id, (start, end) in enumerate(zip(scenes, scenes[1:])):
+        if scene_id % 25 == 0:
+            check_cancel(workdir)
+        if end - start < config.MIN_CLIP or not frame_paths:
+            continue
+        times = [(start + end) / 2]
+        if end - start >= 4:
+            times.append(start + (end - start) * 0.75)
+        selected = []
+        for t in times:
+            index = max(0, min(len(frame_paths) - 1, round(t * fps)))
+            frame = frame_paths[index]
+            if frame not in selected:
+                selected.append(frame)
+        samples.append({"scene_id": scene_id, "start": start, "end": end,
+                        "frames": selected})
+
+    jlog(workdir, f"classifying {len(samples)} scene shots for race action, interviews and podium")
+    batches = [samples[i:i + SCENE_CLASSIFY_BATCH]
+               for i in range(0, len(samples), SCENE_CLASSIFY_BATCH)]
+    results = {}
+    expected_scene_ids = {sample["scene_id"] for sample in samples}
+
+    def classify_one(batch):
+        try:
+            rows = _classify_scene_batch(workdir, batch)
+            expected = {sample["scene_id"] for sample in batch}
+            valid_ids = set()
+            valid_rows = []
+            for row in rows:
+                try:
+                    scene_id = int(row["scene_id"])
+                    confidence = float(row["confidence"])
+                    category = str(row["category"])
+                    if (scene_id in expected and 0 <= confidence <= 1
+                            and category in SCENE_CATEGORIES):
+                        valid_ids.add(scene_id)
+                        valid_rows.append(row)
+                except (KeyError, TypeError, ValueError):
+                    continue
+            missing = expected - valid_ids
+            if not missing:
+                return rows
+            jlog(workdir, f"batch labels incomplete for IDs "
+                 f"{sorted(missing)}; retrying those scenes singly")
+            recovered = valid_rows
+            for sample in batch:
+                if sample["scene_id"] not in missing:
+                    continue
+                try:
+                    recovered.extend(_classify_scene_batch(workdir, [sample]))
+                except Exception as single_exc:
+                    jlog(workdir, f"single-scene classification failed "
+                         f"for ID {sample['scene_id']}: {single_exc}")
+            return recovered
+        except SceneClassificationFormatError as exc:
+            # A smaller request often fixes truncated or malformed batch JSON.
+            jlog(workdir, f"batch labels incomplete for IDs "
+                 f"{batch[0]['scene_id']}-{batch[-1]['scene_id']}; retrying singly: {exc}")
+            rows = []
+            for sample in batch:
+                try:
+                    rows.extend(_classify_scene_batch(workdir, [sample]))
+                except Exception as single_exc:
+                    jlog(workdir, f"single-scene classification failed "
+                         f"for ID {sample['scene_id']}: {single_exc}")
+            return rows
+        except JobCancelled:
+            raise
+        except Exception as exc:
+            jlog(workdir, f"scene classification failed for IDs "
+                 f"{batch[0]['scene_id']}-{batch[-1]['scene_id']}: {exc}; "
+                 "unclassified shots will be excluded")
+            return []
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=VLM_WORKERS) as pool:
+        futures = [pool.submit(classify_one, batch) for batch in batches]
+        completed = 0
+        for future in as_completed(futures):
+            check_cancel(workdir)
+            completed += 1
+            for item in future.result():
+                try:
+                    scene_id = int(item["scene_id"])
+                    confidence = float(item["confidence"])
+                    category = str(item.get("category", "other"))
+                    if (0 <= confidence <= 1 and category in SCENE_CATEGORIES
+                            and scene_id in expected_scene_ids):
+                        results[scene_id] = {
+                            "scene_id": scene_id,
+                            "category": category,
+                            "action": str(item.get("action", "unknown")),
+                            "confidence": confidence,
+                        }
+                except (KeyError, TypeError, ValueError):
+                    continue
+            if completed % 10 == 0 or completed == len(futures):
+                jlog(workdir, f"scene classification batches {completed}/{len(futures)}")
+
+    output = []
+    for sample in samples:
+        label = results.get(sample["scene_id"], {
+            "scene_id": sample["scene_id"], "category": "unknown",
+            "action": "unknown", "confidence": 0.0,
+        })
+        output.append({**sample, **label,
+                       "frames": [os.fspath(frame) for frame in sample["frames"]]})
+    target = workdir / "race_scenes.json"
+    temp = workdir / "race_scenes.json.tmp"
+    temp.write_text(json.dumps(output, indent=2, default=_json_fallback))
+    temp.replace(target)
+    counts = {}
+    for item in output:
+        counts[item["category"]] = counts.get(item["category"], 0) + 1
+    jlog(workdir, f"scene labels: {counts}")
+    return output
+
+
 def run(workdir: Path, vision: dict, duration: float) -> list:
     suspects = vision["suspects"]
     fps = vision["fps"]
@@ -138,6 +384,8 @@ def run(workdir: Path, vision: dict, duration: float) -> list:
             return i, rg, None
         try:
             return i, rg, _call_vlm(workdir, imgs)
+        except JobCancelled:
+            raise
         except Exception as e:
             jlog(workdir, f"VLM call failed @{rg['start']:.0f}s: {e}")
             # fail-closed: treat review failure as blocked
@@ -152,6 +400,7 @@ def run(workdir: Path, vision: dict, duration: float) -> list:
     with ThreadPoolExecutor(max_workers=VLM_WORKERS) as ex:
         futs = [ex.submit(review_one, i, rg) for i, rg in enumerate(ranges)]
         for f in as_completed(futs):
+            check_cancel(workdir)
             i, rg, verdict = f.result()
             done += 1
             if verdict is None:

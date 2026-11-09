@@ -1,12 +1,12 @@
 # 赛车录像高光剪辑工具链
 
-从一段赛车比赛录像里自动找出精彩时刻，剪成一条 720p 高光视频。
+从一段赛车比赛录像里自动找出精彩时刻，剪成一条约 7 分钟的 720p 高光视频。
 全部基于本机已装的 `ffmpeg`，纯 Python 标准库，**不需要装 numpy 或任何第三方包**。
 
 ## 最快上手（一条命令）
 
 ```bash
-python3 make_highlight.py 你的录像.mkv --minutes 8 --height 720
+python3 make_highlight.py 你的录像.mkv --minutes 7 --height 720
 ```
 
 这条命令会自动跑完「探测 → 剪出 → 转 720p 合成」。
@@ -23,20 +23,36 @@ python3 make_highlight.py 你的录像.mkv --minutes 8 --height 720
 `lavfi.scd.mafd`（平均绝对帧间差），取**连续数值曲线**而非阈值事件——
 连续数值可以自适应，不用猜一个固定阈值。
 
+## raccut 桌面版的选片规则
+
+桌面版会用 VLM 给每个镜头分类，再由 EDL 只从高置信度的精彩竞速镜头里选片；
+超车、近距离缠斗、集团竞速、发车/冲线、车载竞速和精彩回放可入选。
+车顶有闪灯/灯条且领跑车队的安全车、编队巡航和黄旗控速会排除；比赛镜头还需达到最低画面运动分数，避免慢速安全车镜头混入。
+运动分数阈值默认是 18，可在桌面页面的“剪辑设置”中调整并保存到本机 `.env`；也可通过环境变量 `RACCUT_MIN_ACTION_MOTION` 设置。单车远景、采访、维修区和其他镜头也会排除。入选比赛片段按原始时间顺序排列。
+桌面版目标总时长约 7 分钟；若检测到颁奖仪式，只在片尾加入最多 8 秒。
+精彩竞速素材不足时，成片可以更短，不会拿采访或普通镜头补满时长。
+刷新页面后，点击左侧任务历史中的任务卡片即可重新打开进度、当前阶段和日志；
+运行时长会从任务开始时间继续计算。
+
+分类失败或信心不足的镜头会排除，因此该功能需要配置可用的 OpenRouter API key。
+批次回复缺项或格式错误时会退回单镜头重试；仍未分类成功的镜头标为未知并排除。
+若没有可确认的竞速片段，任务会给出明确错误并停止，不会用采访兜底。逐帧分类仍可能误判；
+建议先查看首批输出的 EDL 和成片。
+
 ## 四个脚本
 
 ### 0. `make_highlight.py` —— 一键出片（推荐入口）
 
 ```bash
-python3 make_highlight.py race.mkv                        # 默认 720p / 8 分钟
-python3 make_highlight.py race.mkv --minutes 8 --height 720
+python3 make_highlight.py race.mkv                        # 默认 720p / 7 分钟
+python3 make_highlight.py race.mkv --minutes 7 --height 720
 python3 make_highlight.py race.mkv --detect-only --thumbs  # 先看候选质量
 python3 make_highlight.py race.mkv --skip-detect --pick 2,5,7,9  # 人工挑好段再合成
 ```
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `--minutes` | 8 | 目标时长 |
+| `--minutes` | 7 | 目标时长 |
 | `--height` | 720 | 输出高度，宽度按 16:9 自动推导 |
 | `--crf` | 21 | 输出质量，越小越好 |
 | `--detect-only` | — | 只探测不剪辑，用于先评估候选 |
@@ -47,7 +63,7 @@ python3 make_highlight.py race.mkv --skip-detect --pick 2,5,7,9  # 人工挑好�
 ```bash
 python3 race_detect.py race.mp4                     # 基本用法
 python3 race_detect.py race.mp4 --json hl.json --thumbs   # 存候选 + 出缩略图
-python3 race_detect.py race.mp4 --target 480        # 目标总长 8 分钟
+python3 race_detect.py race.mp4 --target 420        # 目标总长 7 分钟
 ```
 
 输出候选段列表（起止时间码、时长、活动量、峰值、类型），并可选写 JSON。
@@ -57,7 +73,7 @@ python3 race_detect.py race.mp4 --target 480        # 目标总长 8 分钟
 | 参数 | 默认 | 说明 |
 |---|---|---|
 | `--k` | 3.0 | 自适应阈值倍数。**找不够就降到 2.0**，噪音太多就升到 4.0 |
-| `--target` | 0 | 目标总时长秒数，480 = 8 分钟。0 = 不限 |
+| `--target` | 0 | 目标总时长秒数，420 = 7 分钟。0 = 不限 |
 | `--min-dur` | 3.0 | 候选段最短时长，过滤单点毛刺 |
 | `--pad` | 4.0 | 每段前后留白，避免把精彩瞬间切在边界上 |
 | `--top` | 25 | 最多候选段数 |
@@ -182,7 +198,7 @@ OBS 的 MKV 直接可用，无需先转封装（工具链原生支持 MKV）。
   本工具的"镜头密度"信号其实就是 `scdet` 的简化用法。
 - 本工具做的是**给"精彩程度"排序并凑到指定时长**：用 1 秒分箱的活动量曲线、
   自适应阈值找区间、按活动量排序、按 `--target` 选最优子集。PySceneDetect
-  没有"按精彩度排序"和"凑够 8 分钟"这两步——它只切分，不评分。
+  没有"按精彩度排序"和"凑够 7 分钟"这两步——它只切分，不评分。
 
 所以两者是互补的。如果本工具的候选质量在真实素材上不理想，
 一个实用的组合是：**用 PySceneDetect 的 `--stats` 导出 `content_val` 曲线**，

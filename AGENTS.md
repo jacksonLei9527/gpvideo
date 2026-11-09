@@ -8,7 +8,7 @@ This repository contains a Python and FFmpeg workflow for finding and assembling
 
 There is no separate build step. Python 3 and an `ffmpeg`/`ffprobe` installation are required for the command-line workflow; the core scripts use the Python standard library.
 
-- `python3 make_highlight.py race.mkv --minutes 8 --height 720` runs detection, extraction, and assembly.
+- `python3 make_highlight.py race.mkv --minutes 7 --height 720` runs detection, extraction, and assembly.
 - `python3 race_detect.py race.mkv --json highlights.json --thumbs` finds candidates and writes review artifacts.
 - `python3 extract_clips.py race.mkv --from-json highlights.json --pick 1,3 --outdir clips` extracts selected segments.
 - `python3 concat_clips.py --manifest clips/clips_manifest.json -o highlight.mp4` assembles the result.
@@ -26,7 +26,7 @@ No automated test suite or coverage target is configured. Use `make_test_video.p
 
 ## Commit & Pull Request Guidelines
 
-This directory has no Git metadata, so existing commit conventions cannot be verified. Use a short imperative commit subject, such as `Fix VFR clip timing`. Pull requests should explain the user-visible change, list the commands or sample media used to validate it, link related issues when applicable, and include screenshots or short clips for desktop/UI changes. Never include source footage, rendered videos, credentials, or `.env` contents in a patch.
+Use a short imperative commit subject, consistent with recent history (for example, `Improve racing highlight selection`). Pull requests should explain the user-visible change, list the commands or sample media used to validate it, link related issues when applicable, and include screenshots or short clips for desktop/UI changes. Never include source footage, rendered videos, credentials, or `.env` contents in a patch.
 
 ## Security & Configuration
 

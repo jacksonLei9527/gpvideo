@@ -8,11 +8,11 @@
   ③ concat_clips.py    统一转 720p 并合成
 
 用法：
-  # 全自动：自动挑候选凑够 8 分钟
+  # 全自动：自动挑候选凑够 7 分钟
   python3 make_highlight.py race.mkv
 
   # 指定目标时长与规格
-  python3 make_highlight.py race.mkv --minutes 8 --height 720
+  python3 make_highlight.py race.mkv --minutes 7 --height 720
 
   # 你自己看缩略图挑好了段，只做后两步
   python3 make_highlight.py race.mkv --skip-detect --from-json hl.json --pick 2,5,7,9
@@ -45,7 +45,7 @@ def run_step(title, cmd):
 def main():
     ap = argparse.ArgumentParser(description="一键出 720p 高光视频")
     ap.add_argument("video", help="源录像（MKV/MP4/MOV 均可）")
-    ap.add_argument("--minutes", type=float, default=8.0, help="目标时长分钟数（默认 8）")
+    ap.add_argument("--minutes", type=float, default=7.0, help="目标时长分钟数（默认 7）")
     ap.add_argument("--height", type=int, default=720, help="输出高度（默认 720）")
     ap.add_argument("--fps", type=float, default=30, help="输出帧率（默认 30）")
     ap.add_argument("--crf", type=int, default=21, help="输出质量，越小越好（默认 21）")

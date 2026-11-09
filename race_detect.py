@@ -21,7 +21,7 @@
 
 用法：
   python3 race_highlights.py race.mp4
-  python3 race_highlights.py race.mp4 --target 480 --thumbs --json hl.json
+  python3 race_highlights.py race.mp4 --target 420 --thumbs --json hl.json
   python3 race_highlights.py race.mp4 --k 2.0 --min-dur 4
 """
 import argparse
@@ -322,7 +322,7 @@ def main():
     ap.add_argument("video")
     ap.add_argument("--top", type=int, default=25, help="最多候选段数（默认 25）")
     ap.add_argument("--target", type=float, default=0,
-                    help="目标总时长秒数，如 480 = 8 分钟。0=不限")
+                    help="目标总时长秒数，如 420 = 7 分钟。0=不限")
     ap.add_argument("--pad", type=float, default=4.0, help="每段前后留白秒数（默认 4）")
     ap.add_argument("--min-dur", type=float, default=3.0, help="候选段最短时长（默认 3s）")
     ap.add_argument("--k", type=float, default=3.0, help="自适应阈值倍数，越小越敏感（默认 3.0）")

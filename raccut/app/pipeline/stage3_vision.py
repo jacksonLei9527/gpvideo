@@ -23,6 +23,7 @@ import cv2
 import numpy as np
 
 from .joblog import jlog
+from .cancel import check_cancel, run_command
 
 FRAME_DIR = "frames"
 W = 640  # analysis proxy width
@@ -31,11 +32,11 @@ W = 640  # analysis proxy width
 def extract_frames(video: Path, workdir: Path, fps: int):
     d = workdir / FRAME_DIR
     d.mkdir(exist_ok=True)
-    r = subprocess.run([
+    r = run_command([
         "ffmpeg", "-y", "-v", "error", "-i", str(video),
         "-vf", f"fps={fps},scale={W}:-1", "-q:v", "4",
         str(d / "f%06d.jpg"),
-    ], capture_output=True, text=True)
+    ], workdir=workdir, capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"frame extract failed: {r.stderr[-500:]}")
     return sorted(d.glob("f*.jpg"))
@@ -70,6 +71,8 @@ def run(video: Path, workdir: Path, duration: float, fps: int = 1) -> dict:
     streak = {"fire": 0, "smoke": 0}  # require 2 consecutive frames
 
     for i, fp in enumerate(frames):
+        if i % 64 == 0:
+            check_cancel(workdir)
         img = cv2.imread(str(fp))
         if img is None:
             continue

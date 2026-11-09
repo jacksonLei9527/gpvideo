@@ -1,15 +1,18 @@
 import json
 import shutil
 import threading
+import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, UploadFile, Request
+from fastapi import FastAPI, File, Form, UploadFile, Request
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                StreamingResponse)
 
 from . import config
 from .pipeline.runner import run_pipeline
+from .pipeline.cancel import (is_cancelled, register_job, request_cancel,
+                              unregister_job)
 
 app = FastAPI(title="raccut")
 JOBS: dict[str, Path] = {}
@@ -77,14 +80,39 @@ def sys_info():
     }
 
 
-def _start(job_id: str, video: Path):
+@app.get("/api/settings")
+def get_settings():
+    return {"min_action_motion": config.get_min_action_motion(),
+            "default_min_action_motion": config.DEFAULT_MIN_ACTION_MOTION}
+
+
+@app.post("/api/settings")
+def save_settings(body: dict):
+    try:
+        if body.get("reset"):
+            saved = config.clear_min_action_motion()
+        else:
+            value = float(body.get("min_action_motion"))
+            saved = config.set_min_action_motion(value)
+    except (TypeError, ValueError) as exc:
+        return JSONResponse({"error": str(exc) or "invalid motion threshold"}, 400)
+    return {"ok": True, "min_action_motion": saved}
+
+
+def _start(job_id: str, video: Path, started_at: float | None = None,
+           source_filename: str | None = None):
     jobdir = _job_dir(job_id)
     jobdir.mkdir(parents=True, exist_ok=True)
-    (jobdir / "status.json").write_text(json.dumps({"state": "queued", "pct": 0}))
+    (jobdir / "status.json").write_text(json.dumps({
+        "state": "queued", "pct": 0, "started_at": started_at or time.time(),
+        "source_filename": source_filename or video.name,
+        "min_action_motion": config.get_min_action_motion(),
+    }))
     out = config.OUTPUT / job_id
     out.mkdir(parents=True, exist_ok=True)
     final = out / "final.mp4"
     JOBS[job_id] = jobdir
+    register_job(job_id)
     t = threading.Thread(target=_run_safe, args=(job_id, video, jobdir, final),
                          daemon=True)
     t.start()
@@ -98,14 +126,14 @@ def _run_safe(job_id, video, jobdir, final):
 
 
 @app.post("/api/jobs/upload")
-def job_from_upload(f: UploadFile = File(...)):
+def job_from_upload(f: UploadFile = File(...), started_at: float | None = Form(None)):
     job_id = uuid.uuid4().hex[:10]
     jobdir = _job_dir(job_id)
     jobdir.mkdir(parents=True, exist_ok=True)
     dst = jobdir / "upload.mp4"
     with dst.open("wb") as w:
         shutil.copyfileobj(f.file, w, length=1 << 22)
-    _start(job_id, dst)
+    _start(job_id, dst, started_at, f.filename)
     return {"job_id": job_id}
 
 
@@ -117,8 +145,22 @@ def list_jobs():
         if not sf.exists():
             continue
         st = json.loads(sf.read_text())
-        jobs.append({"id": d.name, "state": st.get("state"),
-                     "pct": st.get("pct"), "stage": st.get("stage"),
+        now = time.time()
+        started = st.get("started_at") or now
+        finished = st.get("finished_at")
+        elapsed = st.get("elapsed_seconds")
+        if elapsed is None:
+            elapsed = max(0, (finished or now) - started)
+        detail_file = d / "detail.txt"
+        jobs.append({"id": d.name, "source_filename": st.get("source_filename"),
+                     "state": st.get("state"), "pct": st.get("pct"),
+                     "stage": st.get("stage"),
+                     "started_at": st.get("started_at"),
+                     "finished_at": st.get("finished_at"),
+                     "elapsed_seconds": elapsed,
+                     "cancel_requested": is_cancelled(d),
+                     "detail": detail_file.read_text().strip()
+                     if detail_file.exists() else "",
                      "mtime": d.stat().st_mtime,
                      "has_final": (config.OUTPUT / d.name / "final.mp4").exists()})
     return jobs[:20]
@@ -157,8 +199,16 @@ def job_candidates(job_id: str):
     motion = np.load(d / "motion.npy") if (d / "motion.npy").exists() else np.array([])
     flux_t = np.arange(len(flux)) * 0.5
     flux_s = flux / (np.median(flux) + 1e-6) if len(flux) else np.array([])
-    cands = stage5_edl.compute_candidates(scenes, blocked, duration,
-                                          flux_t, flux_s, motion)
+    labels_f = d / "race_scenes.json"
+    labels = ({int(item["scene_id"]): item
+               for item in json.loads(labels_f.read_text())}
+              if labels_f.exists() else {})
+    status_file = d / "status.json"
+    saved_floor = (json.loads(status_file.read_text()).get("min_action_motion")
+                   if status_file.exists() else None)
+    cands = stage5_edl.compute_candidates(
+        scenes, blocked, duration, flux_t, flux_s, motion, labels, d,
+        min_action_motion=saved_floor)
     edl_f = d / "edl.json"
     edl = json.loads(edl_f.read_text()) if edl_f.exists() else []
 
@@ -206,26 +256,55 @@ def job_set_edl(job_id: str, body: dict):
     out = config.OUTPUT / job_id / "final.mp4"
     src = Path(meta["video"])
     blocked = _parse_blocked(d)
+    started_at = time.time()
+    source_filename = st.get("source_filename")
+    motion_floor = st.get("min_action_motion")
 
     def rerender():
         from .pipeline import stage6_render, stage7_qc
         from .pipeline.joblog import jlog
+        from .pipeline.cancel import JobCancelled, check_cancel
         try:
             (d / "status.json").write_text(json.dumps({
-                "state": "running", "stage": "render", "pct": 85}))
+                "state": "running", "stage": "render", "pct": 85,
+                "started_at": started_at, "source_filename": source_filename,
+                "min_action_motion": motion_floor}))
             jlog(d, f"re-render: {len(edl)} clips")
             stage6_render.run(src, edl, d, out)
+            check_cancel(d)
             (d / "status.json").write_text(json.dumps({
-                "state": "running", "stage": "qc", "pct": 95}))
+                "state": "running", "stage": "qc", "pct": 95,
+                "started_at": started_at, "source_filename": source_filename,
+                "min_action_motion": motion_floor}))
             report = stage7_qc.run(out, edl, blocked, d)
+            finished_at = time.time()
             (d / "status.json").write_text(json.dumps({
                 "state": "done", "stage": "done", "pct": 100,
-                "final": str(out), "qc": report}))
+                "final": str(out), "qc": report, "started_at": started_at,
+                "source_filename": source_filename,
+                "min_action_motion": motion_floor, "finished_at": finished_at,
+                "elapsed_seconds": finished_at-started_at}))
             jlog(d, "re-render done")
-        except Exception as e:
+        except JobCancelled:
+            out.unlink(missing_ok=True)
+            finished_at = time.time()
             (d / "status.json").write_text(json.dumps({
-                "state": "failed", "error": str(e)}))
+                "state": "cancelled", "stage": "cancelled",
+                "started_at": started_at, "source_filename": source_filename,
+                "min_action_motion": motion_floor, "finished_at": finished_at,
+                "elapsed_seconds": finished_at-started_at}))
+            jlog(d, "re-render cancelled by user")
+        except Exception as e:
+            finished_at = time.time()
+            (d / "status.json").write_text(json.dumps({
+                "state": "failed", "error": str(e), "started_at": started_at,
+                "source_filename": source_filename,
+                "min_action_motion": motion_floor, "finished_at": finished_at,
+                "elapsed_seconds": finished_at-started_at}))
+        finally:
+            unregister_job(job_id)
 
+    register_job(job_id)
     threading.Thread(target=rerender, daemon=True).start()
     return {"ok": True, "clips": len(edl)}
 
@@ -252,6 +331,11 @@ def job_status(job_id: str):
     if not sf.exists():
         return JSONResponse({"error": "no such job"}, 404)
     st = json.loads(sf.read_text())
+    st["cancel_requested"] = is_cancelled(d)
+    if st.get("state") not in ("queued", "running"):
+        now = time.time()
+        st.setdefault("elapsed_seconds", max(
+            0, (st.get("finished_at") or now) - (st.get("started_at") or now)))
     df = d / "detail.txt"
     if df.exists():
         st["detail"] = df.read_text().strip()
@@ -264,12 +348,58 @@ def job_status(job_id: str):
     return st
 
 
+@app.post("/api/jobs/{job_id}/cancel")
+def job_cancel(job_id: str):
+    d = _job_dir(job_id)
+    sf = d / "status.json"
+    if not sf.exists():
+        return JSONResponse({"error": "no such job"}, 404)
+    st = json.loads(sf.read_text())
+    if st.get("state") not in ("queued", "running"):
+        return JSONResponse({"error": "job is not running"}, 409)
+    if not request_cancel(job_id):
+        # A job left marked active by a server restart has no worker to signal.
+        # Let the user close that stale entry instead of exposing a dead button.
+        finished = time.time()
+        st.update(state="cancelled", stage="cancelled", finished_at=finished,
+                  elapsed_seconds=max(0, finished-(st.get("started_at") or finished)))
+        sf.write_text(json.dumps(st, indent=2))
+    return {"ok": True}
+
+
 @app.get("/api/jobs/{job_id}/final.mp4")
 def job_final(job_id: str, request: Request):
     f = config.OUTPUT / job_id / "final.mp4"
     if not f.exists():
         return JSONResponse({"error": "not ready"}, 404)
     return range_response(f, request)
+
+
+@app.get("/api/jobs/{job_id}/download")
+def job_download(job_id: str):
+    """Download using the source name and the job's elapsed generation time."""
+    d = _job_dir(job_id)
+    f = config.OUTPUT / job_id / "final.mp4"
+    if not f.exists():
+        return JSONResponse({"error": "not ready"}, 404)
+    status_file = d / "status.json"
+    status = json.loads(status_file.read_text()) if status_file.exists() else {}
+    source = str(status.get("source_filename") or job_id)
+    source = source.replace("\\", "/").rsplit("/", 1)[-1]
+    stem = Path(source).stem or job_id
+    # Keep only portable filename characters, preventing header/path injection.
+    import re
+    stem = re.sub(r'[\x00-\x1f<>:"/\\|?*]+', "_", stem).strip(" ._") or job_id
+    elapsed = status.get("elapsed_seconds")
+    if elapsed is None and status.get("started_at") and status.get("finished_at"):
+        elapsed = status["finished_at"] - status["started_at"]
+    # Older task records may not contain timer fields; retain a useful suffix.
+    if elapsed is None:
+        elapsed = (status.get("qc") or {}).get("duration", 0)
+    total_seconds = max(0, int(round(float(elapsed))))
+    duration_tag = f"{total_seconds // 60}.{total_seconds % 60:02d}"
+    return FileResponse(f, media_type="video/mp4",
+                        filename=f"{stem}_output_{duration_tag}.mp4")
 
 
 @app.get("/api/jobs/{job_id}/source.mp4")

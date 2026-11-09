@@ -6,7 +6,6 @@
     each clip boundary checked against blocked flag set
 """
 import json
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -14,19 +13,20 @@ import cv2
 
 from .stage3_vision import analyze_frame
 from .stage0_probe import probe
+from .cancel import check_cancel, run_command
 
 
-def _grab(video: Path, t: float, dst: Path) -> bool:
-    r = subprocess.run([
+def _grab(video: Path, t: float, dst: Path, workdir: Path) -> bool:
+    r = run_command([
         "ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", str(video),
         "-frames:v", "1", "-vf", "scale=640:-1", str(dst),
-    ], capture_output=True, text=True)
+    ], workdir=workdir, capture_output=True, text=True)
     return r.returncode == 0 and dst.exists()
 
 
 def run(final: Path, edl: list, blocked: list, workdir: Path) -> dict:
     report = {"ok": True, "issues": []}
-    info = probe(final)
+    info = probe(final, workdir)
     dur = float(info["format"]["duration"])
 
     with tempfile.TemporaryDirectory() as td:
@@ -34,8 +34,9 @@ def run(final: Path, edl: list, blocked: list, workdir: Path) -> dict:
         # 1) every-10s content scan
         t = 0.0
         while t < dur:
+            check_cancel(workdir)
             f = td / "q.jpg"
-            if _grab(final, t, f):
+            if _grab(final, t, f, workdir):
                 img = cv2.imread(str(f))
                 if img is not None:
                     feats = analyze_frame(img)
@@ -53,13 +54,14 @@ def run(final: Path, edl: list, blocked: list, workdir: Path) -> dict:
         # (we re-derive the boundary position in output timeline)
         out_t = 0.0
         for i, c in enumerate(edl[:-1]):
+            check_cancel(workdir)
             out_t += c["end"] - c["start"]
             for off in (-0.3, 0.3):
                 f = td / "b.jpg"
                 tt = out_t + off
                 if tt < 0 or tt >= dur:
                     continue
-                if _grab(final, tt, f):
+                if _grab(final, tt, f, workdir):
                     img = cv2.imread(str(f))
                     black = (img is None or
                              cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).mean() < 5)
