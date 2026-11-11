@@ -67,16 +67,22 @@ def sys_info():
     import psutil
     vm = psutil.virtual_memory()
     proc = psutil.Process()
+    running = 0
+    for d in config.WORKDIR.iterdir():
+        sf = d / "status.json"
+        if not sf.exists():
+            continue
+        try:
+            state = json.loads(sf.read_text()).get("state")
+        except (OSError, json.JSONDecodeError, AttributeError):
+            continue
+        running += state in ("queued", "running")
     return {
         "mem_total_gb": round(vm.total / 1e9, 1),
         "mem_used_pct": vm.percent,
         "proc_rss_mb": round(proc.memory_info().rss / 1e6),
         "cpu_pct": psutil.cpu_percent(interval=0.2),
-        "jobs_running": sum(
-            1 for d in config.WORKDIR.iterdir()
-            if (d / "status.json").exists()
-            and json.loads((d / "status.json").read_text()).get("state")
-            in ("queued", "running")),
+        "jobs_running": running,
     }
 
 
@@ -127,24 +133,40 @@ def _run_safe(job_id, video, jobdir, final):
 
 @app.post("/api/jobs/upload")
 def job_from_upload(f: UploadFile = File(...), started_at: float | None = Form(None)):
+    filename = (f.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+    if not filename.lower().endswith(".mp4"):
+        return JSONResponse({"error": "Please upload an MP4 video."}, 400)
     job_id = uuid.uuid4().hex[:10]
     jobdir = _job_dir(job_id)
     jobdir.mkdir(parents=True, exist_ok=True)
     dst = jobdir / "upload.mp4"
     with dst.open("wb") as w:
         shutil.copyfileobj(f.file, w, length=1 << 22)
-    _start(job_id, dst, started_at, f.filename)
+    if dst.stat().st_size == 0:
+        shutil.rmtree(jobdir, ignore_errors=True)
+        return JSONResponse({"error": "The uploaded video is empty."}, 400)
+    _start(job_id, dst, started_at, filename)
     return {"job_id": job_id}
 
 
 @app.get("/api/jobs")
-def list_jobs():
+def list_jobs(q: str = "", limit: int = 20):
     jobs = []
+    query = q.strip().casefold()
+    limit = min(max(limit, 1), 100)
     for d in sorted(config.WORKDIR.iterdir(), key=lambda d: -d.stat().st_mtime):
         sf = d / "status.json"
         if not sf.exists():
             continue
-        st = json.loads(sf.read_text())
+        try:
+            st = json.loads(sf.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(st, dict):
+            continue
+        source_name = str(st.get("source_filename") or "")
+        if query and query not in source_name.casefold() and query not in d.name.casefold():
+            continue
         now = time.time()
         started = st.get("started_at") or now
         finished = st.get("finished_at")
@@ -163,7 +185,7 @@ def list_jobs():
                      if detail_file.exists() else "",
                      "mtime": d.stat().st_mtime,
                      "has_final": (config.OUTPUT / d.name / "final.mp4").exists()})
-    return jobs[:20]
+    return jobs[:limit]
 
 
 def _parse_blocked(d: Path) -> list:
@@ -183,15 +205,12 @@ def _parse_blocked(d: Path) -> list:
     return out
 
 
-@app.get("/api/jobs/{job_id}/candidates")
-def job_candidates(job_id: str):
-    """All safe candidate clips with scores; `selected` = in current EDL."""
+def _job_safe_candidates(d: Path):
     import numpy as np
     from .pipeline import stage5_edl
-    d = _job_dir(job_id)
     scenes_f, meta_f = d / "scenes.json", d / "probe.json"
     if not scenes_f.exists() or not meta_f.exists():
-        return JSONResponse({"error": "job data incomplete"}, 404)
+        raise FileNotFoundError("job data incomplete")
     scenes = json.loads(scenes_f.read_text())
     duration = json.loads(meta_f.read_text())["duration"]
     blocked = _parse_blocked(d)
@@ -209,6 +228,17 @@ def job_candidates(job_id: str):
     cands = stage5_edl.compute_candidates(
         scenes, blocked, duration, flux_t, flux_s, motion, labels, d,
         min_action_motion=saved_floor)
+    return cands, duration
+
+
+@app.get("/api/jobs/{job_id}/candidates")
+def job_candidates(job_id: str):
+    """All safe candidate clips with scores; `selected` = in current EDL."""
+    d = _job_dir(job_id)
+    try:
+        cands, _ = _job_safe_candidates(d)
+    except FileNotFoundError as exc:
+        return JSONResponse({"error": str(exc)}, 404)
     edl_f = d / "edl.json"
     edl = json.loads(edl_f.read_text()) if edl_f.exists() else []
 
@@ -241,20 +271,48 @@ def job_set_edl(job_id: str, body: dict):
     st = json.loads(sf.read_text())
     if st.get("state") in ("running", "queued"):
         return JSONResponse({"error": "job still running"}, 409)
-    meta = json.loads((d / "probe.json").read_text())
-    duration = meta["duration"]
+    if st.get("state") != "done":
+        return JSONResponse({"error": "only completed jobs can be re-rendered"}, 409)
+    try:
+        safe_candidates, duration = _job_safe_candidates(d)
+    except FileNotFoundError as exc:
+        return JSONResponse({"error": str(exc)}, 404)
     edl = []
+    categories = []
     for c in body.get("edl", []):
         s, e = float(c["start"]), float(c["end"])
-        if 0 <= s < e <= duration and e - s >= 1.0:
-            edl.append({"start": round(s, 3), "end": round(e, 3)})
-    edl.sort(key=lambda c: c["start"])
+        if not (0 <= s < e <= duration and e-s >= 1.0):
+            continue
+        matches = [candidate for candidate in safe_candidates
+                   if candidate["start"] <= s + 0.01
+                   and candidate["end"] >= e - 0.01]
+        if not matches:
+            return JSONResponse({"error": "clip must stay within a reviewed safe candidate"}, 400)
+        category = min(matches, key=lambda candidate: candidate["end"]-candidate["start"])["category"]
+        edl.append({"start": round(s, 3), "end": round(e, 3)})
+        categories.append(category)
+    ordered = sorted(zip(edl, categories), key=lambda item: item[0]["start"])
+    edl = [item[0] for item in ordered]
+    categories = [item[1] for item in ordered]
     if not edl:
         return JSONResponse({"error": "empty edl"}, 400)
+    if any(left["end"] > right["start"] + 0.001
+           for left, right in zip(edl, edl[1:])):
+        return JSONResponse({"error": "clip ranges cannot overlap"}, 400)
+    podium_seconds = sum(c["end"]-c["start"] for c, category in zip(edl, categories)
+                        if category == "podium")
+    if podium_seconds > 8.001:
+        return JSONResponse({"error": "podium footage is limited to 8 seconds"}, 400)
+    seen_podium = False
+    for category in categories:
+        if category == "podium":
+            seen_podium = True
+        elif seen_podium:
+            return JSONResponse({"error": "podium footage must remain at the end"}, 400)
     (d / "edl.json").write_text(json.dumps(edl, indent=2))
 
     out = config.OUTPUT / job_id / "final.mp4"
-    src = Path(meta["video"])
+    src = Path(json.loads((d / "probe.json").read_text())["video"])
     blocked = _parse_blocked(d)
     started_at = time.time()
     source_filename = st.get("source_filename")
@@ -358,6 +416,10 @@ def job_cancel(job_id: str):
     if st.get("state") not in ("queued", "running"):
         return JSONResponse({"error": "job is not running"}, 409)
     if not request_cancel(job_id):
+        # Recheck terminal state to avoid racing a worker that just finished.
+        latest = json.loads(sf.read_text())
+        if latest.get("state") not in ("queued", "running"):
+            return JSONResponse({"error": "job is not running"}, 409)
         # A job left marked active by a server restart has no worker to signal.
         # Let the user close that stale entry instead of exposing a dead button.
         finished = time.time()

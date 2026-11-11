@@ -6,8 +6,9 @@
 <title>raccut — Racing Highlights Auto-Edit</title>
 <style>
   * { box-sizing: border-box; }
-  body { font-family: ui-monospace, Menlo, monospace; background:#0e0e10;
-         color:#ddd; margin:0; padding:14px 16px; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+         background:#0e0e10;color:#ddd;margin:0;padding:16px; }
+  :focus-visible { outline:2px solid #0a84ff; outline-offset:2px; }
   .head { display:flex; justify-content:space-between; align-items:center;
           max-width:1400px; margin:0 auto 10px; }
   h1 { font-size:18px; margin:0; display:inline; }
@@ -23,8 +24,13 @@
   button { background:#0a84ff; color:#fff; border:0; border-radius:6px;
            padding:6px 12px; cursor:pointer; font-family:inherit; font-size:12px; }
   button.ghost { background:#2c2c30; }
-  input[type="number"] { background:#101012; color:#ddd; border:1px solid #3a3a3e;
-         border-radius:6px; padding:5px 7px; width:90px; font-family:inherit; }
+  input[type="number"],input[type="search"] { background:#101012; color:#ddd;
+         border:1px solid #3a3a3e;border-radius:6px;padding:6px 8px;
+         font:inherit;font-size:12px; }
+  input[type="number"] { width:90px; }
+  .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+         overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
+  #drop[aria-busy="true"] { opacity:.55;cursor:progress; }
   select { background:#2c2c30; color:#ddd; border:1px solid #3a3a3e;
            border-radius:6px; padding:4px 8px; font-family:inherit; font-size:12px; }
   .bar { height:7px; background:#2a2a2e; border-radius:4px; overflow:hidden; }
@@ -66,10 +72,13 @@
   pre#jlog { max-height:180px; }
   a { color:#0a84ff; font-size:12px; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .hist { display:flex; justify-content:space-between; padding:5px 4px;
-          border-bottom:1px solid #232326; font-size:11px; cursor:pointer; }
-  .hist:hover { background:#ffffff08; }
-  .hist .st { font-size:10px; }
+  .hist { display:flex; align-items:center; gap:6px; padding:3px 0;
+          border-bottom:1px solid #232326; font-size:12px; }
+  .hist-main { display:flex; align-items:center; justify-content:space-between;
+          gap:10px; flex:1; min-width:0; padding:6px 5px; text-align:left;
+          color:inherit; background:transparent; }
+  .hist-main:hover,.hist-main.selected { background:#ffffff0c; }
+  .hist .st { font-size:11px; white-space:nowrap; }
   .hist .st.done{color:#30d158}.hist .st.failed{color:#ff453a}
   .hist .st.running{color:#0a84ff}
   .stat { background:#101012; border-radius:6px; padding:6px 8px; font-size:10px;
@@ -77,12 +86,55 @@
   .placeholder { color:#555; font-size:12px; text-align:center; padding:60px 0;
                  border:1px dashed #2a2a2e; border-radius:10px; }
   .tblwrap { overflow-x:auto; }
+  .precision-editor { margin-top:10px; padding:10px; border:1px solid #303036; border-radius:8px; background:#111114; }
+  .precision-head { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; }
+  .edit-track-scroll { overflow:auto; margin-top:8px; border:1px solid #34343a; border-radius:6px; background:#202025; }
+  .edit-track { position:relative; height:74px; min-width:100%; touch-action:none; user-select:none; }
+  .edit-track .tick { position:absolute; top:2px; bottom:0; border-left:1px solid #ffffff18; color:#999; font-size:10px; padding-left:3px; pointer-events:none; }
+  .edit-track .blocked-range { position:absolute; top:27px; height:34px; background:#ff453a42; border-inline:1px solid #ff453a99; pointer-events:none; }
+  .edit-track .edit-clip { position:absolute; top:31px; height:26px; min-width:5px; border-radius:4px; background:#30d158a8; border:1px solid #30d158; cursor:pointer; }
+  .edit-track .edit-clip.active { background:#30d158; outline:2px solid #fff; z-index:2; }
+  .edit-track .edit-clip.podium { background:#ffb340b8; border-color:#ffb340; }
+  .edit-track .edit-clip .handle { position:absolute; top:-3px; bottom:-3px; width:8px; background:#fff; border-radius:4px; cursor:ew-resize; display:none; }
+  .edit-track .edit-clip.active .handle { display:block; }
+  .edit-track .handle.in { left:-4px; } .edit-track .handle.out { right:-4px; }
+  .edit-track .playhead { position:absolute; z-index:3; top:0; bottom:0; width:2px; background:#fff; pointer-events:none; }
+  .clip-fields { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin-top:10px; }
+  .clip-fields label { display:grid; gap:3px; color:#999; font-size:11px; }
+  .clip-fields input { width:120px; }
+  .clip-fields .muted { font-size:11px; }
+  .edl-row.active { outline:1px solid #30d158; background:#15231a; }
+  .timeline-help { margin-top:5px; font-size:11px; line-height:1.5; }
+  .result-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(300px,360px); gap:12px; align-items:start; margin-top:8px; }
+  .result-main,.result-sidebar { min-width:0; }
+  .result-sidebar { position:sticky; top:10px; max-height:calc(100vh - 30px); overflow-y:auto; padding-right:3px; }
+  .result-panel { background:#111114; border:1px solid #29292e; border-radius:8px; padding:10px; margin-bottom:10px; }
+  .result-panel h3 { margin-top:2px; }
+  .result-panel .edlwrap { max-height:28vh; }
+  .result-panel .revwrap { max-height:24vh; }
+  .result-panel #blocked { max-height:18vh; }
+  .result-panel #cands { table-layout:fixed; }
+  .result-panel #cands th:nth-child(1) { width:44px; }
+  .result-panel #cands th:nth-child(2) { width:120px; }
+  .result-panel #cands th:nth-child(3) { width:58px; }
+  .result-panel #cands td { overflow:hidden; text-overflow:ellipsis; }
+  @media (max-width:1180px) {
+    .result-layout { grid-template-columns:minmax(0,1fr) minmax(270px,320px); }
+  }
+  @media (max-width:760px) {
+    .result-layout { grid-template-columns:minmax(0,1fr); }
+    .result-sidebar { position:static; max-height:none; overflow:visible; padding:0; }
+    .result-panel .edlwrap,.result-panel .revwrap,.result-panel #blocked { max-height:300px; }
+  }
   .ptab { font-size:11px; padding:4px 10px; }
   .ptab.on { background:#0a84ff; }
   .ripple { position:fixed; border-radius:50%; background:#0a84ff55;
             transform:translate(-50%,-50%) scale(0); pointer-events:none;
             z-index:9999; animation:rip .55s ease-out forwards; }
   @keyframes rip { to { transform:translate(-50%,-50%) scale(1); opacity:0; } }
+  @media (prefers-reduced-motion:reduce) {
+    .ripple { display:none; } .bar>div { transition:none; }
+  }
   .overlay { position:fixed; inset:0; background:#000a; z-index:10000;
              display:flex; align-items:center; justify-content:center; }
   .mbox { background:#1c1c1e; border:1px solid #3a3a3e; border-radius:12px;
@@ -107,8 +159,9 @@
   <!-- LEFT: control & monitoring -->
   <div>
     <div class="card">
-      <div id="drop" data-i18n="drop"></div>
-      <input type="file" id="file" accept="video/mp4" style="display:none">
+      <div id="drop" role="button" tabindex="0" aria-controls="file" data-i18n="drop"></div>
+      <input type="file" id="file" accept=".mp4,video/mp4" style="display:none">
+      <div class="muted" style="margin-top:7px;line-height:1.5" data-i18n="selectionHint"></div>
       <div id="upbar" class="bar up" style="margin-top:8px;display:none"><div></div></div>
       <div id="uptext" class="muted" style="margin-top:5px"></div>
       <video id="upreview" controls style="display:none;margin-top:8px"></video>
@@ -151,7 +204,11 @@
         <b style="font-size:12px" data-i18n="history"></b>
         <button class="ghost" onclick="loadJobs()" data-i18n="refresh"></button>
       </div>
+      <label for="jobSearch" class="sr-only" data-i18n="searchJobs"></label>
+      <input id="jobSearch" type="search" data-i18n-placeholder="searchJobs"
+        style="width:100%;margin-top:8px">
       <div id="jobs" style="margin-top:6px"></div>
+      <div id="historyStatus" class="muted" role="status" style="margin-top:5px"></div>
     </div>
   </div>
 
@@ -166,42 +223,76 @@
           <a id="dl" href="#" download data-i18n="download"></a>
         </div>
       </div>
-      <div class="row" style="margin-top:6px">
-        <button class="ghost ptab on" id="tabfinal" onclick="playTab('final')"></button>
-        <button class="ghost ptab" id="tabsrc" onclick="playTab('source')"></button>
-        <span class="muted" id="playnote"></span>
+      <div class="result-layout">
+        <section class="result-main">
+          <div class="row" style="margin-top:2px">
+            <button class="ghost ptab on" id="tabfinal" onclick="playTab('final')"></button>
+            <button class="ghost ptab" id="tabsrc" onclick="playTab('source')"></button>
+            <span class="muted" id="playnote"></span>
+          </div>
+          <video id="player" controls></video>
+          <div id="qc" style="margin-top:6px;font-size:11px"></div>
+
+          <h3><span data-i18n="timeline"></span>
+              <span class="muted" style="text-transform:none" data-i18n="tllegend"></span></h3>
+          <canvas id="tl"></canvas>
+          <section id="precisionEditor" class="precision-editor" style="display:none">
+            <div class="precision-head">
+              <b data-i18n="precisionTitle"></b>
+              <label class="muted"><span data-i18n="zoom"></span>
+                <input id="editZoom" type="range" min="1" max="20" value="1" step="1" style="vertical-align:middle">
+                <span id="editZoomValue">1×</span>
+              </label>
+              <span id="editPlayTime" class="muted">00:00</span>
+            </div>
+            <div id="editTrackScroll" class="edit-track-scroll">
+              <div id="editTrack" class="edit-track" role="group" tabindex="0" aria-label="Source video timeline"></div>
+            </div>
+            <p class="muted timeline-help" data-i18n="precisionHelp"></p>
+            <div id="clipFields" class="clip-fields" style="display:none">
+              <label><span data-i18n="clipStart"></span><input id="clipStart" type="number" min="0" step="0.1"></label>
+              <button class="ghost" data-nudge-edge="start:-0.1">−0.1s</button>
+              <button class="ghost" data-nudge-edge="start:0.1">+0.1s</button>
+              <button class="ghost" data-set-edge="start" data-i18n="setToPlayhead"></button>
+              <label><span data-i18n="clipEnd"></span><input id="clipEnd" type="number" min="0" step="0.1"></label>
+              <button class="ghost" data-nudge-edge="end:-0.1">−0.1s</button>
+              <button class="ghost" data-nudge-edge="end:0.1">+0.1s</button>
+              <button class="ghost" data-set-edge="end" data-i18n="setToPlayhead"></button>
+              <span id="clipDuration" class="muted"></span>
+            </div>
+          </section>
+        </section>
+
+        <aside class="result-sidebar">
+          <section class="result-panel">
+            <h3 data-i18n="edl"></h3>
+            <div id="editfeedback" role="status" aria-live="polite"></div>
+            <div class="edlwrap"><table id="edl"><thead><tr>
+              <th id="edlcol0"></th><th data-i18n="col_order"></th><th data-i18n="srcregion"></th>
+              <th data-i18n="duration"></th><th data-i18n="outpos"></th>
+            </tr></thead><tbody></tbody></table></div>
+          </section>
+
+          <section id="editbar" class="result-panel" style="display:none">
+            <div class="row"><button id="rerender" data-i18n="rerender"></button>
+              <span class="muted" id="edlsum"></span></div>
+            <h3 data-i18n="candidates"></h3>
+            <div class="edlwrap"><table id="cands"><thead><tr>
+              <th data-i18n="col_add"></th><th data-i18n="srcregion"></th>
+              <th data-i18n="duration"></th><th data-i18n="score"></th>
+            </tr></thead><tbody></tbody></table></div>
+          </section>
+
+          <section class="result-panel">
+            <h3 data-i18n="reviews"></h3>
+            <div class="revwrap"><div id="reviews" class="muted"></div></div>
+          </section>
+          <section class="result-panel">
+            <h3 data-i18n="blocked"></h3>
+            <pre id="blocked"></pre>
+          </section>
+        </aside>
       </div>
-      <video id="player" controls></video>
-      <div id="qc" style="margin-top:6px;font-size:11px"></div>
-
-      <h3><span data-i18n="timeline"></span>
-          <span class="muted" style="text-transform:none" data-i18n="tllegend"></span></h3>
-      <canvas id="tl"></canvas>
-
-      <h3 data-i18n="edl"></h3>
-      <div id="editfeedback" role="status" aria-live="polite"></div>
-      <div class="edlwrap"><table id="edl"><thead><tr>
-        <th id="edlcol0"></th><th data-i18n="col_order"></th><th data-i18n="srcregion"></th>
-        <th data-i18n="duration"></th><th data-i18n="outpos"></th>
-      </tr></thead><tbody></tbody></table></div>
-
-      <div id="editbar" style="display:none;margin-top:8px">
-        <div class="row">
-          <button id="rerender" data-i18n="rerender"></button>
-          <span class="muted" id="edlsum"></span>
-        </div>
-        <h3 data-i18n="candidates"></h3>
-        <div class="edlwrap"><table id="cands"><thead><tr>
-          <th data-i18n="col_add"></th><th data-i18n="srcregion"></th>
-          <th data-i18n="duration"></th><th data-i18n="score"></th>
-        </tr></thead><tbody></tbody></table></div>
-      </div>
-
-      <h3 data-i18n="reviews"></h3>
-      <div class="revwrap"><div id="reviews" class="muted"></div></div>
-
-      <h3 data-i18n="blocked"></h3>
-      <pre id="blocked"></pre>
     </div>
   </div>
 </div>
@@ -224,7 +315,8 @@ const STAGE_NAMES = ['probe','scenes','audio','vision','vlm','classify','edl','r
 const I18N = {
   'zh-Hant': {
     subtitle:'賽車集錦自動剪輯 · 1h → 7min',
-    drop:'拖入 mp4 上傳（或點擊選擇文件）',
+    drop:'拖入 MP4 上傳（或點擊選擇文件）',
+    selectionHint:'聚焦高速競逐、超車與近身纏鬥；排除安全車巡航、採訪和事故敏感畫面。', uploadFailed:'上傳失敗', mp4Only:'只支援 MP4 格式', networkError:'網絡連線失敗', searchJobs:'搜尋源片檔名或任務編號', noJobs:'沒有符合的任務', deleteJob:'刪除任務', historyError:'無法載入任務歷史', detailsError:'無法載入成片詳情',
     uploading:'上傳中', uploaded:'已上傳', starting:'開始處理',
     job:'任務', metrics:'運行指標', log:'實時日誌', history:'任務歷史', refresh:'刷新', settingsTitle:'剪輯設定', minActionMotion:'最低畫面運動分數', saveSetting:'保存', resetSetting:'恢復預設', settingsSaved:'已保存；新任務會使用此設定', settingsError:'設定保存失敗', motionHint:'分數來自 160×90 畫面每秒的影格差異，是車速的畫面代理，不是實際車速。數值越高，會排除更多低動態片段，素材不足時成片可能較短。預設 18；設為 0 可關閉運動畫面門檻，但安全車語意篩選仍會生效。',
     running:'正在執行', queued:'排隊中', done:'完成', failed:'失敗', cancelled:'已中止', cancelTask:'中止任務', cancelling:'正在中止…', generationTime:'生成用時',
@@ -237,6 +329,7 @@ const I18N = {
     noreviews:'無疑似段送審', noblocked:'（無封禁區間）',
     cancel:'取消', ok:'確定', confirm_rm2:'確認?', confirm_rm:'確定刪除該片段？', removed:'已從 EDL 移除 {0}，可在候選池加回', added:'已加入', col_order:'序號', col_add:'加入', col_del:'刪除', tailnote:'（各封禁段已自動後延 45s 清理窗）',
     edit:'編輯剪輯', candidates:'候選池（點 + 加回片段）', score:'分數',
+    precisionTitle:'精細時間軸（拖動兩端微調入點／出點）', zoom:'縮放', precisionHelp:'點擊軌道可跳到源片位置；選中片段後拖動白色端點微調。紅色為封禁範圍，綠色為成片片段。可用下方數值框或 0.1 秒按鈕精修；調整範圍不會超出已審核候選片段。', clipStart:'入點（秒）', clipEnd:'出點（秒）', setToPlayhead:'設為播放位置', trimBoundsError:'調整無效：不可越出已審核片段、與相鄰片段重疊或短於 1 秒。', podiumLimit:'頒獎片段總長最多 8 秒。', podiumMustEnd:'頒獎畫面必須留在成片最後。', unsavedEdits:'有未套用的剪輯修改', discardEdits:'放棄尚未重新渲染的剪輯修改？', exitEdit:'退出編輯',
     rerender:'▶ 重新渲染', delhist:'刪除', confirm_del:'確定刪除該任務及其產物？',
     block:'封禁', pass:'放行',
     final:'成片', source:'源片', playhint:'點 EDL 行播放切片 · 點候選行跳源片',
@@ -254,7 +347,8 @@ const I18N = {
   },
   'zh-Hans': {
     subtitle:'赛车集锦自动剪辑 · 1h → 7min',
-    drop:'拖入 mp4 上传（或点击选择文件）',
+    drop:'拖入 MP4 上传（或点击选择文件）',
+    selectionHint:'聚焦高速竞逐、超车和贴身缠斗；排除安全车巡航、采访和事故敏感画面。', uploadFailed:'上传失败', mp4Only:'仅支持 MP4 格式', networkError:'网络连接失败', searchJobs:'搜索源片文件名或任务编号', noJobs:'没有匹配的任务', deleteJob:'删除任务', historyError:'无法加载任务历史', detailsError:'无法加载成片详情',
     uploading:'上传中', uploaded:'已上传', starting:'开始处理',
     job:'任务', metrics:'运行指标', log:'实时日志', history:'任务历史', refresh:'刷新', settingsTitle:'剪辑设置', minActionMotion:'最低画面运动分数', saveSetting:'保存', resetSetting:'恢复默认', settingsSaved:'已保存；新任务会使用此设置', settingsError:'设置保存失败', motionHint:'分数来自 160×90 画面每秒的帧差异，是车速的画面代理，不是实际车速。数值越高，会排除更多低动态片段，素材不足时成片可能更短。默认 18；设为 0 可关闭运动画面门槛，但安全车语义筛选仍会生效。',
     running:'正在执行', queued:'排队中', done:'完成', failed:'失败', cancelled:'已中止', cancelTask:'中止任务', cancelling:'正在中止…', generationTime:'生成用时',
@@ -267,6 +361,7 @@ const I18N = {
     noreviews:'无疑似段送审', noblocked:'（无封禁区间）',
     cancel:'取消', ok:'确定', confirm_rm2:'确认?', confirm_rm:'确定删除该片段？', removed:'已从 EDL 移除 {0}，可在候选池加回', added:'已加入', col_order:'序号', col_add:'加入', col_del:'删除', tailnote:'（各封禁段已自动后延 45s 清理窗）',
     edit:'编辑剪辑', candidates:'候选池（点 + 加回片段）', score:'分数',
+    precisionTitle:'精细时间轴（拖动两端微调入点／出点）', zoom:'缩放', precisionHelp:'点击轨道可跳到源片位置；选中片段后拖动白色端点微调。红色为封禁范围，绿色为成片片段。可用下方数值框或 0.1 秒按钮精修；调整范围不会超出已审核候选片段。', clipStart:'入点（秒）', clipEnd:'出点（秒）', setToPlayhead:'设为播放位置', trimBoundsError:'调整无效：不可超出已审核片段、与相邻片段重叠或短于 1 秒。', podiumLimit:'颁奖片段总长最多 8 秒。', podiumMustEnd:'颁奖画面必须放在成片最后。', unsavedEdits:'有未应用的剪辑修改', discardEdits:'放弃尚未重新渲染的剪辑修改？', exitEdit:'退出编辑',
     rerender:'▶ 重新渲染', delhist:'删除', confirm_del:'确定删除该任务及其产物？',
     block:'封禁', pass:'放行',
     final:'成片', source:'源片', playhint:'点 EDL 行播放切片 · 点候选行跳源片',
@@ -284,7 +379,8 @@ const I18N = {
   },
   'en': {
     subtitle:'Racing highlight cutter · 1h → 7min',
-    drop:'Drop an mp4 here (or click to choose)',
+    drop:'Drop an MP4 here (or click to choose)',
+    selectionHint:'Keep fast competition, overtakes, and close battles; exclude safety-car laps, interviews, and sensitive incident footage.', uploadFailed:'Upload failed', mp4Only:'MP4 files only', networkError:'Network error', searchJobs:'Search source filename or job ID', noJobs:'No matching jobs', deleteJob:'Delete job', historyError:'Could not load job history', detailsError:'Could not load video details',
     uploading:'Uploading', uploaded:'Uploaded', starting:'processing…',
     job:'Job', metrics:'Metrics', log:'Live log', history:'Job history', refresh:'Refresh', settingsTitle:'Editing settings', minActionMotion:'Minimum visual-motion score', saveSetting:'Save', resetSetting:'Use default', settingsSaved:'Saved; applies to new jobs', settingsError:'Could not save setting', motionHint:'Measured as frame difference per second on 160×90 images; it is a visual proxy, not actual vehicle speed. Higher values exclude more low-motion clips and may produce a shorter video. Default: 18. Set 0 to disable the motion threshold; safety-car semantic filtering remains active.',
     running:'Running', queued:'Queued', done:'Done', failed:'Failed', cancelled:'Cancelled', cancelTask:'Cancel job', cancelling:'Cancelling…', generationTime:'Generation time',
@@ -297,6 +393,7 @@ const I18N = {
     noreviews:'No suspect ranges reviewed', noblocked:'(no blocked ranges)',
     cancel:'Cancel', ok:'OK', confirm_rm2:'sure?', confirm_rm:'Delete this clip?', removed:'Removed {0} from EDL; available in candidates', added:'added', col_order:'No.', col_add:'Add', col_del:'Del', tailnote:'(each blocked range auto-extends 45s cleanup tail)',
     edit:'Edit cuts', candidates:'Candidate pool (click + to add)', score:'Score',
+    precisionTitle:'Precision timeline (drag either end to trim)', zoom:'Zoom', precisionHelp:'Click the track to seek the source. Select a clip, then drag its white handles to trim. Red marks blocked ranges; green marks clips in the cut. Use the fields or 0.1-second buttons for precise edits. Edits stay within the reviewed candidate range.', clipStart:'In point (sec)', clipEnd:'Out point (sec)', setToPlayhead:'Set to playhead', trimBoundsError:'Invalid trim: clips must stay within reviewed bounds, avoid overlaps, and remain at least 1 second long.', podiumLimit:'The podium outro is limited to 8 seconds total.', podiumMustEnd:'Podium footage must stay at the end of the final cut.', unsavedEdits:'Unrendered edits', discardEdits:'Discard these edits that have not been rendered?', exitEdit:'Exit editing',
     rerender:'▶ Re-render', delhist:'Delete', confirm_del:'Delete this job and its outputs?',
     block:'BLOCKED', pass:'PASS',
     final:'Final', source:'Source', playhint:'click EDL row to play clip · click candidate to jump to source',
@@ -314,7 +411,8 @@ const I18N = {
   },
   'pt': {
     subtitle:'Corte automático de highlights · 1h → 7min',
-    drop:'Arraste um mp4 aqui (ou clique para escolher)',
+    drop:'Arraste um MP4 aqui (ou clique para escolher)',
+    selectionHint:'Prioriza disputas rápidas, ultrapassagens e batalhas próximas; exclui safety car, entrevistas e cenas sensíveis de incidentes.', uploadFailed:'Falha no envio', mp4Only:'Somente MP4', networkError:'Erro de rede', searchJobs:'Buscar nome do vídeo ou ID', noJobs:'Nenhuma tarefa encontrada', deleteJob:'Apagar tarefa', historyError:'Não foi possível carregar o histórico', detailsError:'Não foi possível carregar os detalhes',
     uploading:'Enviando', uploaded:'Enviado', starting:'processando…',
     job:'Tarefa', metrics:'Métricas', log:'Log ao vivo', history:'Histórico', refresh:'Atualizar', settingsTitle:'Configurações de edição', minActionMotion:'Movimento visual mínimo', saveSetting:'Salvar', resetSetting:'Usar padrão', settingsSaved:'Salvo; aplicado a novas tarefas', settingsError:'Falha ao salvar', motionHint:'Medido pela diferença entre quadros por segundo em imagens 160×90; é um indicador visual, não a velocidade real. Valores maiores excluem mais trechos lentos e podem encurtar o vídeo. Padrão: 18. Use 0 para desativar o limite de movimento; a filtragem semântica do safety car continua ativa.',
     running:'Executando', queued:'Na fila', done:'Concluído', failed:'Falhou', cancelled:'Cancelada', cancelTask:'Cancelar tarefa', cancelling:'Cancelando…', generationTime:'Tempo de geração',
@@ -327,6 +425,7 @@ const I18N = {
     noreviews:'Nenhum trecho suspeito', noblocked:'(sem bloqueios)',
     cancel:'Cancelar', ok:'OK', confirm_rm2:'certeza?', confirm_rm:'Apagar este clipe?', removed:'Removido {0} da EDL; disponível nos candidatos', added:'adicionado', col_order:'Nº', col_add:'Add', col_del:'Del', tailnote:'(cada trecho bloqueado estende 45s de limpeza)',
     edit:'Editar cortes', candidates:'Candidatos (clique + para adicionar)', score:'Score',
+    precisionTitle:'Linha do tempo precisa (arraste as pontas para ajustar)', zoom:'Zoom', precisionHelp:'Clique na faixa para avançar a fonte. Selecione um clipe e arraste as alças brancas para ajustar. Vermelho indica trechos bloqueados; verde indica clipes incluídos. Use os campos ou botões de 0,1 s para ajuste fino. O corte permanece dentro do intervalo já revisado.', clipStart:'Entrada (s)', clipEnd:'Saída (s)', setToPlayhead:'Definir na reprodução', trimBoundsError:'Ajuste inválido: permaneça nos limites revisados, evite sobreposição e mantenha pelo menos 1 segundo.', podiumLimit:'O trecho do pódio pode ter no máximo 8 segundos.', podiumMustEnd:'O pódio deve permanecer no final do vídeo.', unsavedEdits:'Edições não renderizadas', discardEdits:'Descartar estas edições ainda não renderizadas?', exitEdit:'Sair da edição',
     rerender:'▶ Renderizar', delhist:'Apagar', confirm_del:'Apagar esta tarefa e saídas?',
     block:'BLOQUEADO', pass:'OK',
     final:'Final', source:'Fonte', playhint:'clique na linha EDL para ver o clipe · candidato salta para a fonte',
@@ -351,12 +450,14 @@ const STAGE_LABEL = k => T('stage')[k] || k;
 
 function applyLang(){
   document.querySelectorAll('[data-i18n]').forEach(el => el.textContent = T(el.dataset.i18n));
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el =>
+    el.placeholder = T(el.dataset.i18nPlaceholder));
   document.documentElement.lang = LANG;
 }
 $('#lang').value = LANG;
 $('#lang').onchange = e => { LANG=e.target.value;
   localStorage.setItem('raccut_lang',LANG); applyLang();
-  if(editMode){ renderEdl(customEdl); renderCands(); }
+  if(editMode){ $('#editbtn').textContent=T('exitEdit'); renderEdl(customEdl); renderCands(); renderPrecisionTimeline(); }
 };
 
 const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
@@ -421,8 +522,9 @@ async function persistMotionSetting(payload){
 }
 
 function saveMotionSetting(){
-  const value=Number($('#motionFloor').value);
-  if(!Number.isFinite(value)||value<0||value>255){
+  const raw=$('#motionFloor').value.trim();
+  const value=Number(raw);
+  if(!raw||!Number.isFinite(value)||value<0||value>255){
     $('#motionSettingStatus').textContent=`${T('settingsError')} (0–255)`;
     return;
   }
@@ -431,27 +533,51 @@ function saveMotionSetting(){
 
 function resetMotionSetting(){ persistMotionSetting({reset:true}); }
 
+let uploadBusy=false;
+function setUploadMessage(message,isError=false){
+  const el=$('#uptext'); el.textContent=message;
+  el.className=isError?'bad':'muted';
+}
 function upload(file){
+  if(!file) return;
+  if(uploadBusy) return;
+  if(!file.name.toLowerCase().endsWith('.mp4')){
+    setUploadMessage(`${T('uploadFailed')}: ${T('mp4Only')}`,true); return;
+  }
   const uploadStartedAt=Date.now()/1000;
-  // instant local preview of the uploaded mp4 (no server round-trip)
+  uploadBusy=true;
+  $('#drop').setAttribute('aria-busy','true');
+  $('#upbar').style.display='block'; $('#upbar div').style.width='0%';
+  setUploadMessage(`${T('uploading')} 0%`);
   if(previewURL) URL.revokeObjectURL(previewURL);
   previewURL=URL.createObjectURL(file);
-  const pv=$('#upreview');
-  pv.src=previewURL; pv.style.display='block';
-  $('#upbar').style.display='block';
+  const pv=$('#upreview'); pv.src=previewURL; pv.style.display='block';
   const xhr=new XMLHttpRequest();
+  const finish=()=>{ uploadBusy=false; $('#drop').removeAttribute('aria-busy'); };
   xhr.open('POST','/api/jobs/upload');
+  xhr.onload=()=>{
+    finish();
+    let result={};
+    try{ result=JSON.parse(xhr.responseText||'{}'); }
+    catch(e){ setUploadMessage(`${T('uploadFailed')}: invalid server response`,true); return; }
+    if(xhr.status<200||xhr.status>=300||!result.job_id){
+      setUploadMessage(`${T('uploadFailed')}: ${result.error||xhr.statusText||xhr.status}`,true);
+      return;
+    }
+    $('#upbar div').style.width='100%';
+    setUploadMessage(`${T('uploaded')}: ${file.name} · ${T('starting')}`);
+    watch(result.job_id);
+  };
+  xhr.onerror=()=>{finish();setUploadMessage(`${T('uploadFailed')}: ${T('networkError')}`,true);};
+  xhr.onabort=()=>{finish();setUploadMessage(`${T('uploadFailed')}: cancelled`,true);};
+  xhr.ontimeout=()=>{finish();setUploadMessage(`${T('uploadFailed')}: timeout`,true);};
   xhr.upload.onprogress=e=>{ if(e.lengthComputable){
     const p=e.loaded/e.total*100;
     $('#upbar div').style.width=p+'%';
-    $('#uptext').textContent=`${T('uploading')} ${p.toFixed(0)}%（${(e.loaded/1e6).toFixed(0)}MB）`;
+    setUploadMessage(`${T('uploading')} ${p.toFixed(0)}% · ${(e.loaded/1e6).toFixed(0)} MB`);
   }};
-  xhr.onload=()=>{
-    $('#uptext').textContent=`${T('uploaded')}：${file.name} · ${T('starting')}`;
-    const j=JSON.parse(xhr.responseText);
-    j.job_id ? watch(j.job_id) : alert(j.error);
-  };
-  const fd=new FormData(); fd.append('f',file); fd.append('started_at',String(uploadStartedAt)); xhr.send(fd);
+  const fd=new FormData(); fd.append('f',file); fd.append('started_at',String(uploadStartedAt));
+  xhr.send(fd);
 }
 
 function drawStages(cur,state,times){
@@ -473,7 +599,9 @@ async function refreshDash(){
       <div class="stat">CPU ${s.cpu_pct}% · Mem ${s.mem_used_pct}%/${s.mem_total_gb}GB<br>
       RSS ${s.proc_rss_mb}MB · Jobs ${s.jobs_running}</div>
       <div class="stat" id="llmstat">${$('#llmstat')?.innerHTML||'LLM —'}</div>`;
-  }catch(e){}
+  }catch(e){
+    if(curJob===id) $('#jdetail').textContent=`${T('detailsError')}: ${e.message}`;
+  }
 }
 function setLlmStat(txt){ const e=$('#llmstat'); if(e) e.innerHTML=txt; }
 
@@ -484,8 +612,14 @@ function stopWatch(){
 
 async function refreshJob(id){
   try{
-    const s=await (await fetch('/api/jobs/'+id)).json();
-    if(curJob!==id || s.error) return;
+    const response=await fetch('/api/jobs/'+id);
+    const s=await response.json();
+    if(curJob!==id) return;
+    if(!response.ok||s.error){
+      stopWatch(); $('#jstate').textContent=s.error||T('historyError');
+      $('#jstate').className='bad'; $('#historyStatus').textContent=s.error||T('historyError');
+      return;
+    }
     renderStatus(id,s);
     if(s.state==='done'){
       stopWatch();
@@ -512,12 +646,20 @@ async function cancelJob(){
 }
 
 function watch(id){
+  if(curJob!==id){
+    if(editMode&&editDirty){askConfirm(T('discardEdits'),()=>{editDirty=false;watch(id);});return;}
+    editMode=false; editJob=null; editNotice=null;
+    editDirty=false; activeEditSeq=null; $('#editbar').style.display='none';
+    $('#precisionEditor').style.display='none'; $('#editbtn').textContent=T('edit');
+  }
   curJob=id;
+  $('#result').style.display='none'; $('#noresult').style.display='block';
   $('#jobcard').style.display='block';
   $('#jid').textContent=id; t0=Date.now();
   stopWatch();
   refreshDash(); dashTimer=setInterval(refreshDash,3000);
   refreshJob(id); // populate progress immediately, including after a page refresh
+  loadJobs();
   pollTimer=setInterval(()=>refreshJob(id),2000);
 }
 
@@ -546,14 +688,22 @@ function renderStatus(id,s){
 }
 
 async function viewJob(id){
-  const s=await (await fetch('/api/jobs/'+id)).json();
+  if(curJob===id&&editMode&&editDirty) return;
+  let s;
+  try{
+    const response=await fetch('/api/jobs/'+id); s=await response.json();
+    if(!response.ok) throw new Error(s.error||T('historyError'));
+  }catch(e){ $('#historyStatus').textContent=e.message; return; }
   if(curJob!==id){
+    if(editMode&&editDirty){askConfirm(T('discardEdits'),()=>{editDirty=false;viewJob(id);});return;}
     editMode=false; editJob=null; editNotice=null;
-    $('#editbar').style.display='none';
+    editDirty=false; activeEditSeq=null; $('#editbar').style.display='none';
+    $('#precisionEditor').style.display='none';
     $('#editbtn').textContent=T('edit');
   }
   if(s.state==='running'||s.state==='queued') { watch(id); return; }
   stopWatch();
+  $('#result').style.display='none'; $('#noresult').style.display='block';
   curJob=id; t0=Date.now();
   $('#jobcard').style.display='block';
   $('#jid').textContent=id;
@@ -571,34 +721,57 @@ function escapeHtml(value){
   })[ch]);
 }
 
+let jobSearchTimer=null, jobsRequest=0;
 async function loadJobs(){
-  const list=await (await fetch('/api/jobs')).json();
-  $('#jobs').innerHTML=list.map(j=>
-    `<div class="hist" role="button" tabindex="0" onclick="viewJob('${j.id}')"
-       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();viewJob('${j.id}')}">
-      <span style="flex:1;min-width:0;overflow:hidden">
-        <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(j.source_filename||j.id)}</strong>
-        <span class="muted">${escapeHtml(j.id)}${j.has_final?' · 🎬':''}</span>
-      </span>
-      <span class="st ${j.state}">${T(j.state)||j.state} ${j.pct||0}%${j.stage?' · '+STAGE_LABEL(j.stage):''}<br>${fmtdate(j.mtime)}<br>${T('generationTime')} ${fmt(j.elapsed_seconds||0)}</span>
-      <button class="ghost" style="padding:1px 7px;font-size:10px"
-        onclick="delJob('${j.id}',event)">✕</button>
-    </div>`).join('')||'<span class="muted">—</span>';
+  const requestId=++jobsRequest;
+  const q=$('#jobSearch').value.trim();
+  const status=$('#historyStatus');
+  try{
+    const response=await fetch(`/api/jobs?q=${encodeURIComponent(q)}&limit=${q?100:20}`);
+    const list=await response.json();
+    if(!response.ok) throw new Error(list.error||T('historyError'));
+    if(requestId!==jobsRequest) return;
+    $('#jobs').innerHTML=list.map(j=>{
+      const name=escapeHtml(j.source_filename||j.id);
+      const id=escapeHtml(j.id);
+      const selected=curJob===j.id?' selected':'';
+      return `<div class="hist">
+        <button class="hist-main${selected}" data-job-id="${id}" title="${name}">
+          <span style="flex:1;min-width:0;overflow:hidden">
+            <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</strong>
+            <span class="muted">${escapeHtml(j.id)}${j.has_final?' · 🎬':''}</span>
+          </span>
+          <span class="st ${escapeHtml(j.state||'')}">${escapeHtml(T(j.state)||j.state||'')} ${j.pct||0}%${j.stage?' · '+escapeHtml(STAGE_LABEL(j.stage)):''}<br>${fmtdate(j.mtime)}<br>${T('generationTime')} ${fmt(j.elapsed_seconds||0)}</span>
+        </button>
+        <button class="ghost" style="padding:5px 8px;font-size:10px" title="${T('deleteJob')}"
+          aria-label="${T('deleteJob')} ${name}" data-delete-job-id="${id}">✕</button>
+      </div>`;
+    }).join('');
+    status.textContent=list.length?'':T('noJobs');
+  }catch(e){ if(requestId===jobsRequest) status.textContent=`${T('historyError')}: ${e.message}`; }
 }
 
 async function delJob(id,e){
   e.stopPropagation();
   askConfirm(T('confirm_del'), async ()=>{
-    const r=await (await fetch('/api/jobs/'+id,{method:'DELETE'})).json();
-    if(r.ok){
-      if(curJob===id){ $('#result').style.display='none';
-        $('#noresult').style.display='block'; $('#jobcard').style.display='none'; }
+    try{
+      const response=await fetch('/api/jobs/'+id,{method:'DELETE'});
+      const result=await response.json();
+      if(!response.ok||!result.ok) throw new Error(result.error||T('historyError'));
+      if(curJob===id){
+        stopWatch(); curJob=null; lastTl=null; editMode=false; editJob=null;
+        editDirty=false; activeEditSeq=null;
+        $('#result').style.display='none'; $('#noresult').style.display='block';
+        $('#jobcard').style.display='none'; $('#editbar').style.display='none';
+        $('#precisionEditor').style.display='none';
+      }
       loadJobs();
-    } else alert(r.error);
+    }catch(err){ $('#historyStatus').textContent=err.message; }
   });
 }
 
 async function showResult(id,status){
+  if(curJob===id&&editMode&&editDirty) return;
   $('#noresult').style.display='none';
   $('#result').style.display='block';
   $('#dl').href=`/api/jobs/${id}/download`;
@@ -614,14 +787,30 @@ async function showResult(id,status){
     ?`<span class="ok">${T('qcpass')}</span> · ${T('outdur')} ${fmt(qc.duration||0)}${generationTime}`
     :`<span class="bad">${T('qcfail').replace('{n}',qc.issues?.length||0)}</span>${generationTime}
       <pre>${(qc.issues||[]).map(i=>
-        `· ${fmt(i.t||0)} — ${T('iss_'+i.type)||i.desc||i.type}`).join('\n')}</pre>`;
+        `· ${fmt(i.t||0)} — ${escapeHtml(T('iss_'+i.type)||i.desc||i.type)}`).join('\n')}</pre>`;
 
-  const [meta,edl,blocked,reviews]=await Promise.all([
-    (await fetch(`/api/jobs/${id}/meta`)).json(),
-    (await fetch(`/api/jobs/${id}/edl`)).json(),
-    (await fetch(`/api/jobs/${id}/blocked`)).json(),
-    (await fetch(`/api/jobs/${id}/reviews`)).json(),
-  ]);
+  let meta,edl,reviews;
+  try{
+    const responses=await Promise.all([
+      fetch(`/api/jobs/${id}/meta`), fetch(`/api/jobs/${id}/edl`),
+      fetch(`/api/jobs/${id}/blocked`), fetch(`/api/jobs/${id}/reviews`),
+    ]);
+    const payloads=await Promise.all(responses.map(r=>r.json()));
+    const failed=responses.findIndex(r=>!r.ok);
+    if(failed>=0) throw new Error(payloads[failed].error||T('detailsError'));
+    [meta,edl,,reviews]=payloads;
+  }catch(e){
+    if(curJob===id) $('#reviews').textContent=`${T('detailsError')}: ${e.message}`;
+    return;
+  }
+  if(curJob!==id) return;
+  let candidates=[];
+  try{
+    const response=await fetch(`/api/jobs/${id}/candidates`);
+    const data=await response.json();
+    if(response.ok&&Array.isArray(data)) candidates=data;
+    else $('#jdetail').textContent=data.error||T('detailsError');
+  }catch(e){ $('#jdetail').textContent=`${T('detailsError')}: ${e.message}`; }
   if(curJob!==id) return;
   const yes=reviews.filter(r=>r.verdict?.verdict==='yes');
   $('#blocked').textContent = yes.length
@@ -631,8 +820,8 @@ async function showResult(id,status){
     : T('noblocked');
   lastTl={dur:meta.duration||0,edl,
           blk:reviews.filter(r=>r.verdict?.verdict==='yes')};
-  drawTimeline(lastTl.dur,editMode?customEdl:lastTl.edl,lastTl.blk);
-  if(!editMode) renderEdl(edl);
+  enterEditSession(id,candidates,edl);
+  drawTimeline(lastTl.dur,customEdl,lastTl.blk);
   renderReviews(id,reviews);
   $('#result').scrollIntoView({behavior:'smooth'});
 }
@@ -679,10 +868,120 @@ function drawTimeline(dur,edl,blockedRevs){
   for(let m=0;m<=dur;m+=600) ctx.fillText(fmt(m),x(m)+4,18);
 }
 
-let editMode=false, customEdl=[], candList=[], editJob=null, editNotice=null;
-let nextEdlSeq=1, pendingRow=null;
+let editMode=false, editDirty=false, customEdl=[], candList=[], editJob=null, editNotice=null;
+let nextEdlSeq=1, pendingRow=null, activeEditSeq=null, timelineDrag=null;
 const sameClip=(a,b)=>Math.abs(a.start-b.start)<0.001 &&
   Math.abs(a.end-b.end)<0.001;
+const editClip=()=>customEdl.find(c=>c.seq===activeEditSeq)||null;
+function clipBounds(c){return c.bounds||{start:c.start,end:c.end,category:c.category||'race_action'};}
+function clipOverlapsOther(c,start,end){
+  return customEdl.some(x=>x!==c&&start<x.end-0.001&&end>x.start+0.001);
+}
+function updateClip(c,which,value){
+  const b=clipBounds(c), minGap=0.05, minLength=1.0;
+  value=Math.max(b.start,Math.min(b.end,Number(value)));
+  if(!Number.isFinite(value)) return false;
+  let start=c.start,end=c.end;
+  if(which==='start') start=Math.min(value,end-minLength);
+  else end=Math.max(value,start+minLength);
+  if(start<b.start-1e-6||end>b.end+1e-6||end-start<minLength) return false;
+  if(b.category==='podium'){
+    const otherPodium=customEdl.filter(x=>x!==c&&clipBounds(x).category==='podium')
+      .reduce((n,x)=>n+x.end-x.start,0);
+    if(end-start>8-otherPodium+1e-6) return false;
+    if(customEdl.some(x=>x!==c&&clipBounds(x).category!=='podium'&&x.start>=end-0.001)) return false;
+  }else if(customEdl.some(x=>clipBounds(x).category==='podium'&&x.start<=end+0.001)){
+    return false;
+  }
+  const prev=customEdl.filter(x=>x!==c&&x.end<=c.start).sort((a,b)=>b.end-a.end)[0];
+  const next=customEdl.filter(x=>x!==c&&x.start>=c.end).sort((a,b)=>a.start-b.start)[0];
+  if(prev&&start<prev.end+minGap-1e-6) return false;
+  if(next&&end>next.start-minGap+1e-6) return false;
+  if(clipOverlapsOther(c,start,end)) return false;
+  c.start=Math.round(start*1000)/1000; c.end=Math.round(end*1000)/1000;
+  editDirty=true;
+  return true;
+}
+function selectEditClip(seq,center=false){
+  activeEditSeq=seq;
+  const c=editClip();
+  if(c&&center){
+    const wrap=$('#editTrackScroll'), track=$('#editTrack');
+    const x=c.start/(lastTl?.dur||1)*track.scrollWidth;
+    wrap.scrollLeft=Math.max(0,x-wrap.clientWidth/2);
+  }
+  renderEdl(customEdl); renderPrecisionTimeline();
+}
+function renderClipFields(){
+  const c=editClip(), box=$('#clipFields');
+  box.style.display=c?'flex':'none';
+  if(!c) return;
+  if(document.activeElement!==$('#clipStart')) $('#clipStart').value=c.start.toFixed(3);
+  if(document.activeElement!==$('#clipEnd')) $('#clipEnd').value=c.end.toFixed(3);
+  const b=clipBounds(c);
+  $('#clipStart').min=b.start; $('#clipStart').max=(c.end-1).toFixed(3);
+  $('#clipEnd').min=(c.start+1).toFixed(3); $('#clipEnd').max=b.end;
+  $('#clipDuration').textContent=`${T('duration')}: ${(c.end-c.start).toFixed(2)}s · ${b.start.toFixed(2)}–${b.end.toFixed(2)}s`;
+}
+function renderPrecisionTimeline(){
+  const track=$('#editTrack'), duration=lastTl?.dur||0;
+  if(!track||!duration) return;
+  const zoom=Number($('#editZoom').value)||1;
+  $('#editZoomValue').textContent=`${zoom}×`;
+  track.style.width=`${zoom*100}%`; track.innerHTML='';
+  const step=duration/zoom>1800?300:duration/zoom>600?120:duration/zoom>180?60:30;
+  for(let t=0;t<=duration;t+=step){
+    const tick=document.createElement('span'); tick.className='tick';
+    tick.style.left=`${t/duration*100}%`; tick.textContent=fmt(t); track.appendChild(tick);
+  }
+  (lastTl.blk||[]).forEach(b=>{
+    const el=document.createElement('span'); el.className='blocked-range';
+    el.style.left=`${b.start/duration*100}%`; el.style.width=`${Math.max(0,(b.end-b.start)/duration*100)}%`;
+    el.title=`${T('block')}: ${fmt(b.start)}–${fmt(b.end)}`; track.appendChild(el);
+  });
+  customEdl.forEach(c=>{
+    const el=document.createElement('div');
+    el.className=`edit-clip${c.seq===activeEditSeq?' active':''}${clipBounds(c).category==='podium'?' podium':''}`;
+    el.dataset.seq=c.seq; el.style.left=`${c.start/duration*100}%`;
+    el.style.width=`${Math.max(0.04,(c.end-c.start)/duration*100)}%`;
+    el.title=`${fmt(c.start)}–${fmt(c.end)} · ${(c.end-c.start).toFixed(2)}s`;
+    el.innerHTML='<span class="handle in" data-edge="start"></span><span class="handle out" data-edge="end"></span>';
+    track.appendChild(el);
+  });
+  const head=document.createElement('span'); head.className='playhead'; head.id='editPlayhead';
+  head.style.left=`${(Number($('#player').currentTime)||0)/duration*100}%`; track.appendChild(head);
+  $('#editPlayTime').textContent=fmt(Number($('#player').currentTime)||0);
+  renderClipFields();
+}
+function updateEditPlayhead(){
+  if(!editMode||!lastTl?.dur) return;
+  const t=Number($('#player').currentTime)||0;
+  const head=$('#editPlayhead');
+  if(head) head.style.left=`${t/lastTl.dur*100}%`;
+  $('#editPlayTime').textContent=fmt(t);
+}
+function sourcePlayhead(){
+  const player=$('#player'), t=Number(player.currentTime)||0;
+  if(player.currentSrc.includes('/source.mp4')) return t;
+  let out=0;
+  for(const c of customEdl){
+    const length=c.end-c.start;
+    if(t>=out&&t<=out+length) return c.start+Math.min(length,t-out);
+    out+=length;
+  }
+  return editClip()?.start||0;
+}
+function precisionFeedback(){
+  $('#editfeedback').style.display='block';
+  $('#editfeedback').textContent=T('trimBoundsError');
+  setTimeout(()=>{if(editMode&&!editNotice) $('#editfeedback').style.display='none';},2500);
+}
+function setActiveEdge(which,value){
+  const c=editClip();
+  if(!c) return;
+  if(!updateClip(c,which,value)){precisionFeedback();renderClipFields();return;}
+  editNotice=null; renderEdl(customEdl); renderPrecisionTimeline();
+}
 function updateEditPreview(){
   if(lastTl) drawTimeline(lastTl.dur,editMode?customEdl:lastTl.edl,lastTl.blk);
 }
@@ -699,40 +998,54 @@ function renderEdl(edl){
   $('#edl tbody').innerHTML=edl.map((c,i)=>{
     const pos=out; out+=c.end-c.start;
     const del=editMode
-      ?`<button class="ghost" style="padding:1px 7px;font-size:10px"
-         onclick="rmClip(this,event)">✕</button>`:'';
-    const act = editMode ? `playAt(${c.start})` : `playSeg(${i})`;
-    return `<tr class="click" data-start="${c.start}" data-end="${c.end}" onclick="${act}">
+      ?`<button class="ghost" style="padding:1px 7px;font-size:10px" data-remove-seq="${c.seq}">✕</button>`:'';
+    const selected=editMode&&c.seq===activeEditSeq?' active':'';
+    return `<tr class="click edl-row${selected}" data-seq="${editMode?c.seq:''}" data-index="${i}" data-start="${c.start}" data-end="${c.end}">
       <td>${editMode?del:''}</td><td>${editMode?c.seq:i+1}</td><td>${fmt(c.start)} – ${fmt(c.end)}</td>
       <td>${(c.end-c.start).toFixed(1)}s</td><td>${fmt(pos)}</td></tr>`;
   }).join('');
+  $('#edl tbody').onclick=e=>{
+    const row=e.target.closest('tr'); if(!row) return;
+    if(editMode){
+      if(e.target.closest('[data-remove-seq]')){rmClip(e.target.closest('[data-remove-seq]'),e);return;}
+      const c=customEdl.find(x=>x.seq===Number(row.dataset.seq));
+      if(c){selectEditClip(c.seq);playAt(c.start);}
+    }else playSeg(Number(row.dataset.index));
+  };
   $('#edlcol0').textContent = editMode ? T('col_del') : '';
   if(editMode){
+    $('#rerender').disabled=!edl.length;
     const notice=editNotice
       ?I18N[LANG].removed.replace('{0}',`${fmt(editNotice.start)} – ${fmt(editNotice.end)}`)
       :'';
-    $('#edlsum').textContent=`${edl.length} clips · ${fmt(out)}${notice?' · '+notice:''}`;
+    $('#edlsum').textContent=`${edl.length} clips · ${fmt(out)}${notice?' · '+notice:''}${editDirty?' · '+T('unsavedEdits'):''}`;
   }
   showEditFeedback();
+  if(editMode) renderClipFields();
   updateEditPreview();
 }
 
 function rmClip(button,e){
   e.stopPropagation();
   const row=button.closest('tr');
-  const c={start:Number(row.dataset.start),end:Number(row.dataset.end)};
+  const current=customEdl.find(x=>x.seq===Number(button.dataset.removeSeq));
+  if(!current) return;
+  const c={start:current.start,end:current.end};
   const job=curJob;
   askConfirm(T('confirm_rm'), ()=>{
     if(!editMode || curJob!==job || editJob!==job) return;
-    const index=customEdl.findIndex(x=>sameClip(x,c));
+    const index=customEdl.findIndex(x=>x.seq===Number(button.dataset.removeSeq));
     if(index<0) return;
     const [removed]=customEdl.splice(index,1);
-    const candidate=candList.find(x=>sameClip(x,c));
-    if(candidate) candidate.seq=removed.seq;
-    else candList.unshift({start:c.start,end:c.end,score:'–',seq:removed.seq});
+    editDirty=true;
+    const b=clipBounds(removed);
+    let candidate=candList.find(x=>Math.abs(x.start-b.start)<0.01&&Math.abs(x.end-b.end)<0.01);
+    if(!candidate){candidate={start:b.start,end:b.end,score:'–',category:b.category,action:'unknown'};candList.unshift(candidate);}
+    candidate.seq=removed.seq;
+    activeEditSeq=customEdl[0]?.seq||null;
     editNotice=c;
     renderEdl(customEdl);
-    renderCands();
+    renderCands(); renderPrecisionTimeline();
   },`${fmt(c.start)} – ${fmt(c.end)}`,row);
 }
 
@@ -764,11 +1077,29 @@ function candPlay(i,e){
 
 function addClip(i){
   const c=candList[i];
-  if(customEdl.some(x=>sameClip(x,c))) return;
-  customEdl.push({start:c.start,end:c.end,seq:c.seq||nextEdlSeq++});
+  if(customEdl.some(x=>Math.abs(x.start-c.start)<0.01&&Math.abs(x.end-c.end)<0.01)) return;
+  let start=c.start,end=c.end;
+  if(c.category==='podium'){
+    if(customEdl.some(x=>clipBounds(x).category!=='podium'&&x.start>=start)){
+      $('#jdetail').textContent=T('podiumMustEnd');return;
+    }
+    const used=customEdl.filter(x=>clipBounds(x).category==='podium').reduce((n,x)=>n+x.end-x.start,0);
+    const allowed=Math.min(end-start,Math.max(0,8-used));
+    if(allowed<1){$('#jdetail').textContent=T('podiumLimit');return;}
+    start=end-allowed;
+  }else if(customEdl.some(x=>clipBounds(x).category==='podium'&&x.start<=end)){
+    $('#jdetail').textContent=T('podiumMustEnd');return;
+  }
+  if(customEdl.some(x=>start<x.end-0.001&&end>x.start+0.001)){
+    $('#jdetail').textContent=T('trimBoundsError');return;
+  }
+  const seq=c.seq||nextEdlSeq++;
+  customEdl.push({start,end,seq,bounds:{start:c.start,end:c.end,category:c.category||'race_action'}});
+  editDirty=true;
   customEdl.sort((a,b)=>a.start-b.start);
+  activeEditSeq=seq;
   editNotice=null;
-  renderEdl(customEdl); renderCands();
+  renderEdl(customEdl); renderCands(); selectEditClip(seq,true);
   const t=$('#edl');
   t.style.outline='2px solid #30d158';
   setTimeout(()=>t.style.outline='',400);
@@ -776,7 +1107,10 @@ function addClip(i){
 
 function renderCands(){
   $('#cands tbody').innerHTML=candList.map((c,i)=>{
-    const added=customEdl.some(x=>sameClip(x,c));
+    const added=customEdl.some(x=>{
+      const b=clipBounds(x);
+      return Math.abs(b.start-c.start)<0.01&&Math.abs(b.end-c.end)<0.01;
+    });
     return `<tr class="click" onclick="candPlay(${i},event)" ${added?'style="opacity:.45"':''}>
       <td>${added
         ?`<span class="tag no">✓ ${T('added')}</span>`
@@ -787,44 +1121,70 @@ function renderCands(){
   }).join('');
 }
 
+function enterEditSession(job,cands,edl){
+  if(curJob!==job||!Array.isArray(cands)||!Array.isArray(edl)) return false;
+  candList=cands;
+  customEdl=edl.map((c,i)=>{
+    const candidate=cands.filter(x=>x.start<=c.start+0.01&&x.end>=c.end-0.01)
+      .sort((a,b)=>(a.end-a.start)-(b.end-b.start))[0];
+    return {start:c.start,end:c.end,seq:i+1,
+      bounds:candidate?{start:candidate.start,end:candidate.end,category:candidate.category}: {start:c.start,end:c.end,category:c.type||'race_action'}};
+  });
+  nextEdlSeq=edl.length+1;
+  activeEditSeq=customEdl[0]?.seq||null;
+  editJob=job; editMode=true; editDirty=false; editNotice=null;
+  $('#editbar').style.display='block';
+  $('#precisionEditor').style.display='block';
+  $('#editbtn').textContent=T('exitEdit');
+  playTab('source');
+  renderCands(); renderEdl(customEdl); renderPrecisionTimeline();
+  return true;
+}
+
 async function toggleEdit(){
   if(!editMode){
     const job=curJob;
+    try{
     const [cands,edl]=await Promise.all([
-      fetch(`/api/jobs/${job}/candidates`).then(r=>r.json()),
-      fetch(`/api/jobs/${job}/edl`).then(r=>r.json())
+      fetch(`/api/jobs/${job}/candidates`).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||'Candidates unavailable');return d;}),
+      fetch(`/api/jobs/${job}/edl`).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||'EDL unavailable');return d;})
     ]);
-    if(curJob!==job || !Array.isArray(cands) || !Array.isArray(edl)) return;
-    candList=cands;
-    customEdl=edl.map((c,i)=>({start:c.start,end:c.end,seq:i+1}));
-    nextEdlSeq=edl.length+1;
-    editJob=job;
-    editMode=true;
-    editNotice=null;
-    $('#editbar').style.display='block';
-    $('#editbtn').textContent='✕ '+T('edit');
-    renderCands(); renderEdl(customEdl);
+    enterEditSession(job,cands,edl);
+    }catch(e){ $('#jdetail').textContent=e.message; }
   } else {
+    if(editDirty){askConfirm(T('discardEdits'),()=>{editDirty=false;toggleEdit();});return;}
     editMode=false;
     editJob=null;
     editNotice=null;
+    activeEditSeq=null;
     $('#editbar').style.display='none';
+    $('#precisionEditor').style.display='none';
     $('#editbtn').textContent=T('edit');
     showEditFeedback();
     updateEditPreview();
-    const edl=await (await fetch(`/api/jobs/${curJob}/edl`)).json();
-    if(!editMode) renderEdl(edl);
+    try{
+      const response=await fetch(`/api/jobs/${curJob}/edl`);
+      const edl=await response.json();
+      if(!response.ok) throw new Error(edl.error||T('detailsError'));
+      if(!editMode&&Array.isArray(edl)) renderEdl(edl);
+    }catch(e){ $('#jdetail').textContent=e.message; }
   }
 }
 
 async function rerender(){
   if(!customEdl.length) return;
-  const r=await (await fetch(`/api/jobs/${curJob}/edl`,{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({edl:customEdl})})).json();
-  if(r.ok){ editMode=false; editJob=null; editNotice=null; $('#editbar').style.display='none';
-    $('#editbtn').textContent=T('edit'); watch(curJob); }
-  else alert(r.error);
+  const button=$('#rerender'); button.disabled=true;
+  try{
+    const response=await fetch(`/api/jobs/${curJob}/edl`,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({edl:customEdl})});
+    const result=await response.json();
+    if(!response.ok||!result.ok) throw new Error(result.error||T('detailsError'));
+    editMode=false; editDirty=false; editJob=null; editNotice=null; activeEditSeq=null;
+    $('#editbar').style.display='none'; $('#precisionEditor').style.display='none';
+    $('#editbtn').textContent=T('edit'); watch(curJob);
+  }catch(e){ $('#jdetail').textContent=e.message; }
+  finally{button.disabled=false;}
 }
 
 function vreason(v){
@@ -844,22 +1204,96 @@ function renderReviews(id,reviews){
       <div>
         <span class="tag ${v?'yes':'no'}">${v?T('block'):T('pass')}</span>
         <b>${fmt(r.start)} – ${fmt(r.end)}</b>
-        <span class="muted">${(r.flags||[]).join(', ')}</span>
-        <div class="muted">${vreason(r.verdict)}</div>
+        <span class="muted">${escapeHtml((r.flags||[]).join(', '))}</span>
+        <div class="muted">${escapeHtml(vreason(r.verdict))}</div>
       </div></div>`;
   }).join('');
 }
 
 $('#editbtn').onclick=toggleEdit;
 $('#rerender').onclick=rerender;
-$('#drop').onclick=()=>$('#file').click();
-$('#file').onchange=e=>e.target.files[0]&&upload(e.target.files[0]);
-$('#drop').ondragover=e=>{e.preventDefault();$('#drop').classList.add('over');};
+$('#editZoom').oninput=renderPrecisionTimeline;
+$('#player').addEventListener('timeupdate',updateEditPlayhead);
+$('#player').addEventListener('seeked',updateEditPlayhead);
+$('#editTrack').addEventListener('pointerdown',e=>{
+  const track=$('#editTrack'), duration=lastTl?.dur||0;
+  if(!duration) return;
+  const handle=e.target.closest('.handle');
+  if(handle){
+    const clipEl=handle.closest('.edit-clip'), c=customEdl.find(x=>x.seq===Number(clipEl?.dataset.seq));
+    if(!c) return;
+    activeEditSeq=c.seq;
+    timelineDrag={seq:c.seq,which:handle.dataset.edge,x:e.clientX,start:c.start,end:c.end,changed:false};
+    track.setPointerCapture(e.pointerId); e.preventDefault(); e.stopPropagation();
+    renderEdl(customEdl); renderPrecisionTimeline(); return;
+  }
+  const clipEl=e.target.closest('.edit-clip');
+  if(clipEl){
+    const c=customEdl.find(x=>x.seq===Number(clipEl.dataset.seq));
+    if(c){selectEditClip(c.seq);playAt(c.start);}
+    return;
+  }
+  const rect=track.getBoundingClientRect();
+  playAt(Math.max(0,Math.min(duration,(e.clientX-rect.left)/rect.width*duration)));
+});
+$('#editTrack').addEventListener('pointermove',e=>{
+  if(!timelineDrag) return;
+  const c=customEdl.find(x=>x.seq===timelineDrag.seq), duration=lastTl?.dur||0;
+  if(!c||!duration) return;
+  const delta=(e.clientX-timelineDrag.x)/$('#editTrack').clientWidth*duration;
+  const edge=timelineDrag.which;
+  const value=(edge==='start'?timelineDrag.start:timelineDrag.end)+delta;
+  if(updateClip(c,edge,value)){
+    timelineDrag.changed=true; editNotice=null;
+    renderEdl(customEdl); renderPrecisionTimeline();
+  }
+  e.preventDefault();
+});
+const finishTimelineDrag=e=>{
+  if(!timelineDrag) return;
+  const changed=timelineDrag.changed; timelineDrag=null;
+  if($('#editTrack').hasPointerCapture(e.pointerId)) $('#editTrack').releasePointerCapture(e.pointerId);
+  if(!changed) precisionFeedback();
+  renderEdl(customEdl); renderPrecisionTimeline();
+};
+$('#editTrack').addEventListener('pointerup',finishTimelineDrag);
+$('#editTrack').addEventListener('pointercancel',finishTimelineDrag);
+$('#editTrack').addEventListener('keydown',e=>{
+  if(!['ArrowLeft','ArrowRight'].includes(e.key)) return;
+  e.preventDefault();
+  const step=e.shiftKey?1:0.1;
+  playAt(Math.max(0,Math.min(lastTl?.dur||0,sourcePlayhead()+(e.key==='ArrowLeft'?-step:step))));
+});
+document.querySelectorAll('[data-nudge-edge]').forEach(b=>b.onclick=()=>{
+  const [which,delta]=b.dataset.nudgeEdge.split(':');
+  const c=editClip(); if(c) setActiveEdge(which,c[which==='start'?'start':'end']+Number(delta));
+});
+document.querySelectorAll('[data-set-edge]').forEach(b=>b.onclick=()=>setActiveEdge(b.dataset.setEdge,sourcePlayhead()));
+$('#clipStart').onchange=e=>setActiveEdge('start',Number(e.target.value));
+$('#clipEnd').onchange=e=>setActiveEdge('end',Number(e.target.value));
+$('#drop').onclick=()=>{if(!uploadBusy) $('#file').click();};
+$('#drop').onkeydown=e=>{if(!uploadBusy&&(e.key==='Enter'||e.key===' ')){e.preventDefault();$('#file').click();}};
+$('#file').onchange=e=>{const file=e.target.files[0];e.target.value='';if(file)upload(file);};
+$('#jobSearch').oninput=()=>{clearTimeout(jobSearchTimer);jobSearchTimer=setTimeout(loadJobs,250);};
+$('#jobs').onclick=e=>{
+  const main=e.target.closest('[data-job-id]');
+  const remove=e.target.closest('[data-delete-job-id]');
+  if(remove) delJob(remove.dataset.deleteJobId,e);
+  else if(main) viewJob(main.dataset.jobId);
+};
+$('#drop').ondragover=e=>{e.preventDefault();if(!uploadBusy)$('#drop').classList.add('over');};
 $('#drop').ondragleave=()=>$('#drop').classList.remove('over');
 $('#drop').ondrop=e=>{e.preventDefault();$('#drop').classList.remove('over');
-  e.dataTransfer.files[0]&&upload(e.dataTransfer.files[0]);};
+  !uploadBusy&&e.dataTransfer.files[0]&&upload(e.dataTransfer.files[0]);};
 
 // click ripple effect
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&$('#modal').style.display==='flex') mCancel();
+  if(!editMode||e.metaKey||e.ctrlKey||e.altKey||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
+  const key=e.key.toLowerCase(), edge=key==='i'?'start':key==='o'?'end':null;
+  if(edge){e.preventDefault();setActiveEdge(edge,sourcePlayhead());}
+});
+
 document.addEventListener('click',e=>{
   const r=document.createElement('div');
   r.className='ripple';
@@ -867,6 +1301,10 @@ document.addEventListener('click',e=>{
   r.style.cssText=`left:${e.clientX}px;top:${e.clientY}px;width:${sz}px;height:${sz}px`;
   document.body.appendChild(r);
   setTimeout(()=>r.remove(),600);
+});
+
+window.addEventListener('beforeunload',e=>{
+  if(editDirty){e.preventDefault();e.returnValue='';}
 });
 
 applyLang(); loadJobs(); loadMotionSetting();
