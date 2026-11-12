@@ -278,7 +278,6 @@ def job_set_edl(job_id: str, body: dict):
     except FileNotFoundError as exc:
         return JSONResponse({"error": str(exc)}, 404)
     edl = []
-    categories = []
     for c in body.get("edl", []):
         s, e = float(c["start"]), float(c["end"])
         if not (0 <= s < e <= duration and e-s >= 1.0):
@@ -286,26 +285,29 @@ def job_set_edl(job_id: str, body: dict):
         matches = [candidate for candidate in safe_candidates
                    if candidate["start"] <= s + 0.01
                    and candidate["end"] >= e - 0.01]
-        if not matches:
-            return JSONResponse({"error": "clip must stay within a reviewed safe candidate"}, 400)
-        category = min(matches, key=lambda candidate: candidate["end"]-candidate["start"])["category"]
-        edl.append({"start": round(s, 3), "end": round(e, 3)})
-        categories.append(category)
-    ordered = sorted(zip(edl, categories), key=lambda item: item[0]["start"])
-    edl = [item[0] for item in ordered]
-    categories = [item[1] for item in ordered]
+        candidate = min(matches, key=lambda item: item["end"]-item["start"]) if matches else None
+        # Hand-marked EDL ranges may come from anywhere in the source. Keep
+        # reviewed-candidate metadata when available; otherwise classify the
+        # manually selected range as racing footage.
+        category = c.get("category", c.get("type")) or (candidate["category"] if candidate else "race_action")
+        if category not in ("race_action", "podium"):
+            category = "race_action"
+        action = c.get("action") or (candidate.get("action", "unknown") if candidate else "manual")
+        role = ("podium" if category == "podium" else
+                "opening" if action == "race_start" else
+                "finish" if action == "race_finish" else "racing")
+        edl.append({"start": round(s, 3), "end": round(e, 3),
+                    "type": category, "action": action, "role": role})
+    edl.sort(key=lambda item: item["start"])
     if not edl:
         return JSONResponse({"error": "empty edl"}, 400)
-    if any(left["end"] > right["start"] + 0.001
-           for left, right in zip(edl, edl[1:])):
-        return JSONResponse({"error": "clip ranges cannot overlap"}, 400)
-    podium_seconds = sum(c["end"]-c["start"] for c, category in zip(edl, categories)
-                        if category == "podium")
+    podium_seconds = sum(c["end"]-c["start"] for c in edl
+                         if c["type"] == "podium")
     if podium_seconds > 8.001:
         return JSONResponse({"error": "podium footage is limited to 8 seconds"}, 400)
     seen_podium = False
-    for category in categories:
-        if category == "podium":
+    for clip in edl:
+        if clip["type"] == "podium":
             seen_podium = True
         elif seen_podium:
             return JSONResponse({"error": "podium footage must remain at the end"}, 400)

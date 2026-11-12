@@ -61,6 +61,14 @@ SCENE_CLASSIFY_PROMPT = (
     "unknown. Use race_action only for visually compelling competition: "
     "overtakes, close battles, pack racing, starts/finishes, or an engaging "
     "onboard. A distant lone vehicle circulating without a contest is other. "
+    "Use action race_start only for the actual race launch: starting grid, "
+    "starting lights going out, cars launching from the grid, or the opening "
+    "seconds of a race start. Do not use race_start for a rolling pack later "
+    "in the race. Use action race_finish for the final-lap battle at the "
+    "finish or cars crossing the finish line/checkered flag; do not use it "
+    "for an ordinary lap or an intermediate timing line. If several frames "
+    "from a scene are provided, use all of them to identify these start/end "
+    "events, especially a start or finish near a scene boundary. "
     "Replays count only when they show an exciting racing moment. Identify a safety car when a "
     "roof-mounted flashing beacon or light bar is visible AND that car is leading a pack with race cars "
     "following. When both cues are visible, label category other and action safety_car even if many cars "
@@ -257,9 +265,10 @@ def classify_scenes(workdir: Path, scenes: list, vision: dict) -> list:
             check_cancel(workdir)
         if end - start < config.MIN_CLIP or not frame_paths:
             continue
-        times = [(start + end) / 2]
-        if end - start >= 4:
-            times.append(start + (end - start) * 0.75)
+        length = end - start
+        times = [start + min(0.5, length / 2)]
+        if length >= 4:
+            times.extend(((start + end) / 2, max(start, end - 0.5)))
         selected = []
         for t in times:
             index = max(0, min(len(frame_paths) - 1, round(t * fps)))

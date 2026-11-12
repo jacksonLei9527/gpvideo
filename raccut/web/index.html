@@ -59,7 +59,7 @@
          align-items:flex-start; font-size:11px; }
   .rev img { width:110px; border-radius:5px; flex-shrink:0; }
   .revwrap { max-height:280px; overflow-y:auto; }
-  .edlwrap { max-height:220px; overflow-y:auto; }
+  .edlwrap { max-height:220px; overflow:auto; }
   #edl tr.pending-removal td { background:#ff453a33; }
   #editfeedback { display:none; padding:7px 9px; margin:6px 0;
                   border-radius:6px; background:#30d15822; color:#30d158;
@@ -93,13 +93,25 @@
   .edit-track .tick { position:absolute; top:2px; bottom:0; border-left:1px solid #ffffff18; color:#999; font-size:10px; padding-left:3px; pointer-events:none; }
   .edit-track .blocked-range { position:absolute; top:27px; height:34px; background:#ff453a42; border-inline:1px solid #ff453a99; pointer-events:none; }
   .edit-track .edit-clip { position:absolute; top:31px; height:26px; min-width:5px; border-radius:4px; background:#30d158a8; border:1px solid #30d158; cursor:pointer; }
+  .edit-track .edit-clip::before,.edit-track .edit-clip::after { content:""; position:absolute; top:8px; width:7px; height:7px; transform:rotate(45deg); border:1px solid #111; z-index:1; }
+  .edit-track .edit-clip::before { left:-4px; background:#64d2ff; }
+  .edit-track .edit-clip::after { right:-4px; background:#ff9f0a; }
   .edit-track .edit-clip.active { background:#30d158; outline:2px solid #fff; z-index:2; }
   .edit-track .edit-clip.podium { background:#ffb340b8; border-color:#ffb340; }
-  .edit-track .edit-clip .handle { position:absolute; top:-3px; bottom:-3px; width:8px; background:#fff; border-radius:4px; cursor:ew-resize; display:none; }
+  .edit-track .edit-clip .handle { position:absolute; top:6px; width:10px; height:10px; background:#fff; border:1px solid #111; border-radius:2px; transform:rotate(45deg); cursor:ew-resize; display:none; }
   .edit-track .edit-clip.active .handle { display:block; }
-  .edit-track .handle.in { left:-4px; } .edit-track .handle.out { right:-4px; }
+  .edit-track .handle.in { left:-5px; } .edit-track .handle.out { right:-5px; }
   .edit-track .playhead { position:absolute; z-index:3; top:0; bottom:0; width:2px; background:#fff; pointer-events:none; }
   .clip-fields { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin-top:10px; }
+  .keyframe-controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:9px; }
+  .keyframe-controls .muted { font-size:11px; min-width:82px; }
+  .keyframe-message { flex-basis:100%; min-height:14px; font-size:11px; color:#ff9f0a; }
+  .edit-track .keyframe-marker { position:absolute; top:23px; bottom:10px; width:2px; z-index:4; pointer-events:none; }
+  .edit-track .keyframe-marker::before { content:""; position:absolute; top:-4px; left:-4px; width:8px; height:8px; transform:rotate(45deg); border:1px solid #111; }
+  .edit-track .keyframe-marker.in { background:#64d2ff; }
+  .edit-track .keyframe-marker.in::before { background:#64d2ff; }
+  .edit-track .keyframe-marker.out { background:#ff9f0a; }
+  .edit-track .keyframe-marker.out::before { background:#ff9f0a; }
   .clip-fields label { display:grid; gap:3px; color:#999; font-size:11px; }
   .clip-fields input { width:120px; }
   .clip-fields .muted { font-size:11px; }
@@ -114,9 +126,11 @@
   .result-panel .revwrap { max-height:24vh; }
   .result-panel #blocked { max-height:18vh; }
   .result-panel #cands { table-layout:fixed; }
-  .result-panel #cands th:nth-child(1) { width:44px; }
-  .result-panel #cands th:nth-child(2) { width:120px; }
-  .result-panel #cands th:nth-child(3) { width:58px; }
+  .result-panel #cands th:nth-child(1) { width:38px; }
+  .result-panel #cands th:nth-child(2) { width:105px; }
+  .result-panel #cands th:nth-child(3) { width:95px; }
+  .result-panel #cands th:nth-child(4) { width:50px; }
+  .result-panel #cands th:nth-child(5) { width:46px; }
   .result-panel #cands td { overflow:hidden; text-overflow:ellipsis; }
   @media (max-width:1180px) {
     .result-layout { grid-template-columns:minmax(0,1fr) minmax(270px,320px); }
@@ -249,15 +263,21 @@
               <div id="editTrack" class="edit-track" role="group" tabindex="0" aria-label="Source video timeline"></div>
             </div>
             <p class="muted timeline-help" data-i18n="precisionHelp"></p>
+            <div class="keyframe-controls">
+              <button id="markInBtn" class="ghost" data-i18n="markIn"></button>
+              <span id="markInState" class="muted"></span>
+              <button id="markOutBtn" class="ghost" data-i18n="markOut"></button>
+              <span id="markOutState" class="muted"></span>
+              <button id="clearMarksBtn" class="ghost" data-i18n="clearKeyframes"></button>
+              <span id="keyframeMessage" class="keyframe-message" role="status" aria-live="polite"></span>
+            </div>
             <div id="clipFields" class="clip-fields" style="display:none">
-              <label><span data-i18n="clipStart"></span><input id="clipStart" type="number" min="0" step="0.1"></label>
+              <label><span data-i18n="clipStart"></span><input id="clipStart" type="number" min="0" step="0.01"></label>
               <button class="ghost" data-nudge-edge="start:-0.1">−0.1s</button>
               <button class="ghost" data-nudge-edge="start:0.1">+0.1s</button>
-              <button class="ghost" data-set-edge="start" data-i18n="setToPlayhead"></button>
-              <label><span data-i18n="clipEnd"></span><input id="clipEnd" type="number" min="0" step="0.1"></label>
+              <label><span data-i18n="clipEnd"></span><input id="clipEnd" type="number" min="0" step="0.01"></label>
               <button class="ghost" data-nudge-edge="end:-0.1">−0.1s</button>
               <button class="ghost" data-nudge-edge="end:0.1">+0.1s</button>
-              <button class="ghost" data-set-edge="end" data-i18n="setToPlayhead"></button>
               <span id="clipDuration" class="muted"></span>
             </div>
           </section>
@@ -268,7 +288,7 @@
             <h3 data-i18n="edl"></h3>
             <div id="editfeedback" role="status" aria-live="polite"></div>
             <div class="edlwrap"><table id="edl"><thead><tr>
-              <th id="edlcol0"></th><th data-i18n="col_order"></th><th data-i18n="srcregion"></th>
+              <th id="edlcol0"></th><th data-i18n="col_order"></th><th data-i18n="col_role"></th><th data-i18n="srcregion"></th>
               <th data-i18n="duration"></th><th data-i18n="outpos"></th>
             </tr></thead><tbody></tbody></table></div>
           </section>
@@ -278,7 +298,7 @@
               <span class="muted" id="edlsum"></span></div>
             <h3 data-i18n="candidates"></h3>
             <div class="edlwrap"><table id="cands"><thead><tr>
-              <th data-i18n="col_add"></th><th data-i18n="srcregion"></th>
+              <th data-i18n="col_add"></th><th data-i18n="srcregion"></th><th data-i18n="actioncol"></th>
               <th data-i18n="duration"></th><th data-i18n="score"></th>
             </tr></thead><tbody></tbody></table></div>
           </section>
@@ -316,7 +336,7 @@ const I18N = {
   'zh-Hant': {
     subtitle:'賽車集錦自動剪輯 · 1h → 7min',
     drop:'拖入 MP4 上傳（或點擊選擇文件）',
-    selectionHint:'聚焦高速競逐、超車與近身纏鬥；排除安全車巡航、採訪和事故敏感畫面。', uploadFailed:'上傳失敗', mp4Only:'只支援 MP4 格式', networkError:'網絡連線失敗', searchJobs:'搜尋源片檔名或任務編號', noJobs:'沒有符合的任務', deleteJob:'刪除任務', historyError:'無法載入任務歷史', detailsError:'無法載入成片詳情',
+    selectionHint:'聚焦高速競逐、超車與近身纏鬥；排除安全車巡航、採訪和事故敏感畫面。成片預留約 10 秒發車開場、衝線前約 20 秒尾段，仍可在精剪中自行修改。', uploadFailed:'上傳失敗', mp4Only:'只支援 MP4 格式', networkError:'網絡連線失敗', searchJobs:'搜尋源片檔名或任務編號', noJobs:'沒有符合的任務', deleteJob:'刪除任務', historyError:'無法載入任務歷史', detailsError:'無法載入成片詳情',
     uploading:'上傳中', uploaded:'已上傳', starting:'開始處理',
     job:'任務', metrics:'運行指標', log:'實時日誌', history:'任務歷史', refresh:'刷新', settingsTitle:'剪輯設定', minActionMotion:'最低畫面運動分數', saveSetting:'保存', resetSetting:'恢復預設', settingsSaved:'已保存；新任務會使用此設定', settingsError:'設定保存失敗', motionHint:'分數來自 160×90 畫面每秒的影格差異，是車速的畫面代理，不是實際車速。數值越高，會排除更多低動態片段，素材不足時成片可能較短。預設 18；設為 0 可關閉運動畫面門檻，但安全車語意篩選仍會生效。',
     running:'正在執行', queued:'排隊中', done:'完成', failed:'失敗', cancelled:'已中止', cancelTask:'中止任務', cancelling:'正在中止…', generationTime:'生成用時',
@@ -327,9 +347,9 @@ const I18N = {
     srcregion:'源片區間', duration:'時長', outpos:'成片位置',
     reviews:'VLM 二審記錄', blocked:'封禁區間',
     noreviews:'無疑似段送審', noblocked:'（無封禁區間）',
-    cancel:'取消', ok:'確定', confirm_rm2:'確認?', confirm_rm:'確定刪除該片段？', removed:'已從 EDL 移除 {0}，可在候選池加回', added:'已加入', col_order:'序號', col_add:'加入', col_del:'刪除', tailnote:'（各封禁段已自動後延 45s 清理窗）',
+    cancel:'取消', ok:'確定', confirm_rm2:'確認?', confirm_rm:'確定刪除該片段？', removed:'已從 EDL 移除 {0}，可在候選池加回', added:'已加入', col_order:'序號', col_role:'位置', actioncol:'動作', col_add:'加入', col_del:'刪除', tailnote:'（各封禁段已自動後延 45s 清理窗）',
     edit:'編輯剪輯', candidates:'候選池（點 + 加回片段）', score:'分數',
-    precisionTitle:'精細時間軸（拖動兩端微調入點／出點）', zoom:'縮放', precisionHelp:'點擊軌道可跳到源片位置；選中片段後拖動白色端點微調。紅色為封禁範圍，綠色為成片片段。可用下方數值框或 0.1 秒按鈕精修；調整範圍不會超出已審核候選片段。', clipStart:'入點（秒）', clipEnd:'出點（秒）', setToPlayhead:'設為播放位置', trimBoundsError:'調整無效：不可越出已審核片段、與相鄰片段重疊或短於 1 秒。', podiumLimit:'頒獎片段總長最多 8 秒。', podiumMustEnd:'頒獎畫面必須留在成片最後。', unsavedEdits:'有未套用的剪輯修改', discardEdits:'放棄尚未重新渲染的剪輯修改？', exitEdit:'退出編輯',
+    precisionTitle:'精細時間軸（拖動兩端微調入點／出點）', zoom:'縮放', precisionHelp:'按住時間軸拖動逐幀預覽；先標記入點、再標記出點即可把片段加入右側 EDL。藍色／橙色線為待加入的入口／出口，綠色片段兩端的菱形為已加入切點。可從源片任意位置截取；原有片段仍可拖動端點或用數值框微調。', clipStart:'入點（秒）', clipEnd:'出點（秒）', markIn:'標記入點', markOut:'標記出點', clearKeyframes:'清除待標記點', unset:'未設定', inSet:'入點：{0}', outSet:'出點：{0}', keyframeNoSafe:'', keyframeOrder:'請確認入點早於出點，且片段至少 1 秒。', keyframeOverlap:'', keyframeAdded:'關鍵幀片段已加入右側 EDL。', trimBoundsError:'調整無效：時間範圍須位於源片內且至少 1 秒。', podiumLimit:'頒獎片段總長最多 8 秒。', podiumMustEnd:'頒獎畫面必須留在成片最後。', unsavedEdits:'有未套用的剪輯修改', discardEdits:'放棄尚未重新渲染的剪輯修改？', exitEdit:'退出編輯',
     rerender:'▶ 重新渲染', delhist:'刪除', confirm_del:'確定刪除該任務及其產物？',
     block:'封禁', pass:'放行',
     final:'成片', source:'源片', playhint:'點 EDL 行播放切片 · 點候選行跳源片',
@@ -348,7 +368,7 @@ const I18N = {
   'zh-Hans': {
     subtitle:'赛车集锦自动剪辑 · 1h → 7min',
     drop:'拖入 MP4 上传（或点击选择文件）',
-    selectionHint:'聚焦高速竞逐、超车和贴身缠斗；排除安全车巡航、采访和事故敏感画面。', uploadFailed:'上传失败', mp4Only:'仅支持 MP4 格式', networkError:'网络连接失败', searchJobs:'搜索源片文件名或任务编号', noJobs:'没有匹配的任务', deleteJob:'删除任务', historyError:'无法加载任务历史', detailsError:'无法加载成片详情',
+    selectionHint:'聚焦高速竞逐、超车和贴身缠斗；排除安全车巡航、采访和事故敏感画面。成片预留约 10 秒发车开场、冲线前约 20 秒尾段，仍可在精剪中自行修改。', uploadFailed:'上传失败', mp4Only:'仅支持 MP4 格式', networkError:'网络连接失败', searchJobs:'搜索源片文件名或任务编号', noJobs:'没有匹配的任务', deleteJob:'删除任务', historyError:'无法加载任务历史', detailsError:'无法加载成片详情',
     uploading:'上传中', uploaded:'已上传', starting:'开始处理',
     job:'任务', metrics:'运行指标', log:'实时日志', history:'任务历史', refresh:'刷新', settingsTitle:'剪辑设置', minActionMotion:'最低画面运动分数', saveSetting:'保存', resetSetting:'恢复默认', settingsSaved:'已保存；新任务会使用此设置', settingsError:'设置保存失败', motionHint:'分数来自 160×90 画面每秒的帧差异，是车速的画面代理，不是实际车速。数值越高，会排除更多低动态片段，素材不足时成片可能更短。默认 18；设为 0 可关闭运动画面门槛，但安全车语义筛选仍会生效。',
     running:'正在执行', queued:'排队中', done:'完成', failed:'失败', cancelled:'已中止', cancelTask:'中止任务', cancelling:'正在中止…', generationTime:'生成用时',
@@ -359,9 +379,9 @@ const I18N = {
     srcregion:'源片区间', duration:'时长', outpos:'成片位置',
     reviews:'VLM 二审记录', blocked:'封禁区间',
     noreviews:'无疑似段送审', noblocked:'（无封禁区间）',
-    cancel:'取消', ok:'确定', confirm_rm2:'确认?', confirm_rm:'确定删除该片段？', removed:'已从 EDL 移除 {0}，可在候选池加回', added:'已加入', col_order:'序号', col_add:'加入', col_del:'删除', tailnote:'（各封禁段已自动后延 45s 清理窗）',
+    cancel:'取消', ok:'确定', confirm_rm2:'确认?', confirm_rm:'确定删除该片段？', removed:'已从 EDL 移除 {0}，可在候选池加回', added:'已加入', col_order:'序号', col_role:'位置', actioncol:'动作', col_add:'加入', col_del:'删除', tailnote:'（各封禁段已自动后延 45s 清理窗）',
     edit:'编辑剪辑', candidates:'候选池（点 + 加回片段）', score:'分数',
-    precisionTitle:'精细时间轴（拖动两端微调入点／出点）', zoom:'缩放', precisionHelp:'点击轨道可跳到源片位置；选中片段后拖动白色端点微调。红色为封禁范围，绿色为成片片段。可用下方数值框或 0.1 秒按钮精修；调整范围不会超出已审核候选片段。', clipStart:'入点（秒）', clipEnd:'出点（秒）', setToPlayhead:'设为播放位置', trimBoundsError:'调整无效：不可超出已审核片段、与相邻片段重叠或短于 1 秒。', podiumLimit:'颁奖片段总长最多 8 秒。', podiumMustEnd:'颁奖画面必须放在成片最后。', unsavedEdits:'有未应用的剪辑修改', discardEdits:'放弃尚未重新渲染的剪辑修改？', exitEdit:'退出编辑',
+    precisionTitle:'精细时间轴（拖动两端微调入点／出点）', zoom:'缩放', precisionHelp:'按住时间轴拖动逐帧预览；先标记入点、再标记出点即可把片段加入右侧 EDL。蓝色／橙色线为待加入的入口／出口，绿色片段两端的菱形为已加入切点。可从源片任意位置截取；原有片段仍可拖动端点或用数值框微调。', clipStart:'入点（秒）', clipEnd:'出点（秒）', markIn:'标记入点', markOut:'标记出点', clearKeyframes:'清除待标记点', unset:'未设置', inSet:'入点：{0}', outSet:'出点：{0}', keyframeNoSafe:'', keyframeOrder:'请确认入点早于出点，且片段至少 1 秒。', keyframeOverlap:'', keyframeAdded:'关键帧片段已加入右侧 EDL。', trimBoundsError:'调整无效：时间范围须位于源片内且至少 1 秒。', podiumLimit:'颁奖片段总长最多 8 秒。', podiumMustEnd:'颁奖画面必须放在成片最后。', unsavedEdits:'有未应用的剪辑修改', discardEdits:'放弃尚未重新渲染的剪辑修改？', exitEdit:'退出编辑',
     rerender:'▶ 重新渲染', delhist:'删除', confirm_del:'确定删除该任务及其产物？',
     block:'封禁', pass:'放行',
     final:'成片', source:'源片', playhint:'点 EDL 行播放切片 · 点候选行跳源片',
@@ -380,7 +400,7 @@ const I18N = {
   'en': {
     subtitle:'Racing highlight cutter · 1h → 7min',
     drop:'Drop an MP4 here (or click to choose)',
-    selectionHint:'Keep fast competition, overtakes, and close battles; exclude safety-car laps, interviews, and sensitive incident footage.', uploadFailed:'Upload failed', mp4Only:'MP4 files only', networkError:'Network error', searchJobs:'Search source filename or job ID', noJobs:'No matching jobs', deleteJob:'Delete job', historyError:'Could not load job history', detailsError:'Could not load video details',
+    selectionHint:'Keep fast competition, overtakes, and close battles; exclude safety-car laps, interviews, and sensitive incident footage. Reserve about 10 seconds for the race start and 20 seconds before the finish; both remain editable.', uploadFailed:'Upload failed', mp4Only:'MP4 files only', networkError:'Network error', searchJobs:'Search source filename or job ID', noJobs:'No matching jobs', deleteJob:'Delete job', historyError:'Could not load job history', detailsError:'Could not load video details',
     uploading:'Uploading', uploaded:'Uploaded', starting:'processing…',
     job:'Job', metrics:'Metrics', log:'Live log', history:'Job history', refresh:'Refresh', settingsTitle:'Editing settings', minActionMotion:'Minimum visual-motion score', saveSetting:'Save', resetSetting:'Use default', settingsSaved:'Saved; applies to new jobs', settingsError:'Could not save setting', motionHint:'Measured as frame difference per second on 160×90 images; it is a visual proxy, not actual vehicle speed. Higher values exclude more low-motion clips and may produce a shorter video. Default: 18. Set 0 to disable the motion threshold; safety-car semantic filtering remains active.',
     running:'Running', queued:'Queued', done:'Done', failed:'Failed', cancelled:'Cancelled', cancelTask:'Cancel job', cancelling:'Cancelling…', generationTime:'Generation time',
@@ -391,9 +411,9 @@ const I18N = {
     srcregion:'Source range', duration:'Length', outpos:'Output pos',
     reviews:'VLM reviews', blocked:'Blocked ranges',
     noreviews:'No suspect ranges reviewed', noblocked:'(no blocked ranges)',
-    cancel:'Cancel', ok:'OK', confirm_rm2:'sure?', confirm_rm:'Delete this clip?', removed:'Removed {0} from EDL; available in candidates', added:'added', col_order:'No.', col_add:'Add', col_del:'Del', tailnote:'(each blocked range auto-extends 45s cleanup tail)',
+    cancel:'Cancel', ok:'OK', confirm_rm2:'sure?', confirm_rm:'Delete this clip?', removed:'Removed {0} from EDL; available in candidates', added:'added', col_order:'No.', col_role:'Slot', actioncol:'Action', col_add:'Add', col_del:'Del', tailnote:'(each blocked range auto-extends 45s cleanup tail)',
     edit:'Edit cuts', candidates:'Candidate pool (click + to add)', score:'Score',
-    precisionTitle:'Precision timeline (drag either end to trim)', zoom:'Zoom', precisionHelp:'Click the track to seek the source. Select a clip, then drag its white handles to trim. Red marks blocked ranges; green marks clips in the cut. Use the fields or 0.1-second buttons for precise edits. Edits stay within the reviewed candidate range.', clipStart:'In point (sec)', clipEnd:'Out point (sec)', setToPlayhead:'Set to playhead', trimBoundsError:'Invalid trim: clips must stay within reviewed bounds, avoid overlaps, and remain at least 1 second long.', podiumLimit:'The podium outro is limited to 8 seconds total.', podiumMustEnd:'Podium footage must stay at the end of the final cut.', unsavedEdits:'Unrendered edits', discardEdits:'Discard these edits that have not been rendered?', exitEdit:'Exit editing',
+    precisionTitle:'Precision timeline (drag either end to trim)', zoom:'Zoom', precisionHelp:'Press and drag to scrub frame by frame. Mark an in-point, then an out-point to add that clip to the EDL on the right. Blue/orange lines show pending points; diamonds on green clips show saved cut points. You can cut anywhere in the source. Existing clips remain trimmable with handles or time fields.', clipStart:'In point (sec)', clipEnd:'Out point (sec)', markIn:'Mark in-point', markOut:'Mark out-point', clearKeyframes:'Clear pending points', unset:'Not set', inSet:'In: {0}', outSet:'Out: {0}', keyframeNoSafe:'', keyframeOrder:'Set the in-point before the out-point; clips must be at least 1 second.', keyframeOverlap:'', keyframeAdded:'Keyframed clip added to the EDL on the right.', trimBoundsError:'Invalid trim: stay within the source and keep clips at least 1 second long.', podiumLimit:'The podium outro is limited to 8 seconds total.', podiumMustEnd:'Podium footage must stay at the end of the final cut.', unsavedEdits:'Unrendered edits', discardEdits:'Discard these edits that have not been rendered?', exitEdit:'Exit editing',
     rerender:'▶ Re-render', delhist:'Delete', confirm_del:'Delete this job and its outputs?',
     block:'BLOCKED', pass:'PASS',
     final:'Final', source:'Source', playhint:'click EDL row to play clip · click candidate to jump to source',
@@ -412,7 +432,7 @@ const I18N = {
   'pt': {
     subtitle:'Corte automático de highlights · 1h → 7min',
     drop:'Arraste um MP4 aqui (ou clique para escolher)',
-    selectionHint:'Prioriza disputas rápidas, ultrapassagens e batalhas próximas; exclui safety car, entrevistas e cenas sensíveis de incidentes.', uploadFailed:'Falha no envio', mp4Only:'Somente MP4', networkError:'Erro de rede', searchJobs:'Buscar nome do vídeo ou ID', noJobs:'Nenhuma tarefa encontrada', deleteJob:'Apagar tarefa', historyError:'Não foi possível carregar o histórico', detailsError:'Não foi possível carregar os detalhes',
+    selectionHint:'Prioriza disputas rápidas, ultrapassagens e batalhas próximas; exclui safety car, entrevistas e cenas sensíveis. Reserva cerca de 10 s para a largada e 20 s antes da chegada; ambos continuam editáveis.', uploadFailed:'Falha no envio', mp4Only:'Somente MP4', networkError:'Erro de rede', searchJobs:'Buscar nome do vídeo ou ID', noJobs:'Nenhuma tarefa encontrada', deleteJob:'Apagar tarefa', historyError:'Não foi possível carregar o histórico', detailsError:'Não foi possível carregar os detalhes',
     uploading:'Enviando', uploaded:'Enviado', starting:'processando…',
     job:'Tarefa', metrics:'Métricas', log:'Log ao vivo', history:'Histórico', refresh:'Atualizar', settingsTitle:'Configurações de edição', minActionMotion:'Movimento visual mínimo', saveSetting:'Salvar', resetSetting:'Usar padrão', settingsSaved:'Salvo; aplicado a novas tarefas', settingsError:'Falha ao salvar', motionHint:'Medido pela diferença entre quadros por segundo em imagens 160×90; é um indicador visual, não a velocidade real. Valores maiores excluem mais trechos lentos e podem encurtar o vídeo. Padrão: 18. Use 0 para desativar o limite de movimento; a filtragem semântica do safety car continua ativa.',
     running:'Executando', queued:'Na fila', done:'Concluído', failed:'Falhou', cancelled:'Cancelada', cancelTask:'Cancelar tarefa', cancelling:'Cancelando…', generationTime:'Tempo de geração',
@@ -423,9 +443,9 @@ const I18N = {
     srcregion:'Trecho da fonte', duration:'Duração', outpos:'Posição',
     reviews:'Revisões VLM', blocked:'Trechos bloqueados',
     noreviews:'Nenhum trecho suspeito', noblocked:'(sem bloqueios)',
-    cancel:'Cancelar', ok:'OK', confirm_rm2:'certeza?', confirm_rm:'Apagar este clipe?', removed:'Removido {0} da EDL; disponível nos candidatos', added:'adicionado', col_order:'Nº', col_add:'Add', col_del:'Del', tailnote:'(cada trecho bloqueado estende 45s de limpeza)',
+    cancel:'Cancelar', ok:'OK', confirm_rm2:'certeza?', confirm_rm:'Apagar este clipe?', removed:'Removido {0} da EDL; disponível nos candidatos', added:'adicionado', col_order:'Nº', col_role:'Parte', actioncol:'Ação', col_add:'Add', col_del:'Del', tailnote:'(cada trecho bloqueado estende 45s de limpeza)',
     edit:'Editar cortes', candidates:'Candidatos (clique + para adicionar)', score:'Score',
-    precisionTitle:'Linha do tempo precisa (arraste as pontas para ajustar)', zoom:'Zoom', precisionHelp:'Clique na faixa para avançar a fonte. Selecione um clipe e arraste as alças brancas para ajustar. Vermelho indica trechos bloqueados; verde indica clipes incluídos. Use os campos ou botões de 0,1 s para ajuste fino. O corte permanece dentro do intervalo já revisado.', clipStart:'Entrada (s)', clipEnd:'Saída (s)', setToPlayhead:'Definir na reprodução', trimBoundsError:'Ajuste inválido: permaneça nos limites revisados, evite sobreposição e mantenha pelo menos 1 segundo.', podiumLimit:'O trecho do pódio pode ter no máximo 8 segundos.', podiumMustEnd:'O pódio deve permanecer no final do vídeo.', unsavedEdits:'Edições não renderizadas', discardEdits:'Descartar estas edições ainda não renderizadas?', exitEdit:'Sair da edição',
+    precisionTitle:'Linha do tempo precisa (arraste as pontas para ajustar)', zoom:'Zoom', precisionHelp:'Mantenha pressionado e arraste para percorrer os quadros. Marque a entrada e depois a saída para adicionar o clipe à EDL à direita. Linhas azul/laranja mostram pontos pendentes; losangos nos clipes verdes indicam cortes salvos. Pode cortar em qualquer ponto do vídeo original. Os clipes existentes continuam ajustáveis pelas alças ou campos.', clipStart:'Entrada (s)', clipEnd:'Saída (s)', markIn:'Marcar entrada', markOut:'Marcar saída', clearKeyframes:'Limpar pontos pendentes', unset:'Não definido', inSet:'Entrada: {0}', outSet:'Saída: {0}', keyframeNoSafe:'', keyframeOrder:'Marque a entrada antes da saída; o clipe deve ter pelo menos 1 segundo.', keyframeOverlap:'', keyframeAdded:'Clipe com pontos-chave adicionado à EDL à direita.', trimBoundsError:'Ajuste inválido: permaneça no vídeo original e mantenha pelo menos 1 segundo.', podiumLimit:'O trecho do pódio pode ter no máximo 8 segundos.', podiumMustEnd:'O pódio deve permanecer no final do vídeo.', unsavedEdits:'Edições não renderizadas', discardEdits:'Descartar estas edições ainda não renderizadas?', exitEdit:'Sair da edição',
     rerender:'▶ Renderizar', delhist:'Apagar', confirm_del:'Apagar esta tarefa e saídas?',
     block:'BLOQUEADO', pass:'OK',
     final:'Final', source:'Fonte', playhint:'clique na linha EDL para ver o clipe · candidato salta para a fonte',
@@ -447,6 +467,18 @@ let LANG = localStorage.getItem('raccut_lang') || 'zh-Hant';
 if (!I18N[LANG]) LANG = 'en';
 const T = k => I18N[LANG][k] ?? I18N.en[k] ?? k;
 const STAGE_LABEL = k => T('stage')[k] || k;
+const EDIT_LABELS={
+  'zh-Hant':{roles:{opening:'開賽開場',racing:'競速主體',finish:'衝線尾段',podium:'頒獎收尾'},actions:{race_start:'發車',race_finish:'衝線',overtake:'超車',close_battle:'近身纏鬥',pack_racing:'集團競速',onboard:'車載競速',replay:'精彩回放'}},
+  'zh-Hans':{roles:{opening:'比赛开场',racing:'竞速主体',finish:'冲线尾段',podium:'颁奖收尾'},actions:{race_start:'发车',race_finish:'冲线',overtake:'超车',close_battle:'贴身缠斗',pack_racing:'集团竞速',onboard:'车载竞速',replay:'精彩回放'}},
+  en:{roles:{opening:'Race start',racing:'Racing',finish:'Finish',podium:'Podium'},actions:{race_start:'Race start',race_finish:'Finish',overtake:'Overtake',close_battle:'Close battle',pack_racing:'Pack racing',onboard:'Onboard',replay:'Replay'}},
+  pt:{roles:{opening:'Largada',racing:'Corrida',finish:'Chegada',podium:'Pódio'},actions:{race_start:'Largada',race_finish:'Chegada',overtake:'Ultrapassagem',close_battle:'Disputa próxima',pack_racing:'Pelotão',onboard:'Câmera onboard',replay:'Repetição'}}
+};
+function clipRole(c){
+  return c.role||(c.type==='podium'||c.category==='podium'?'podium':
+    c.action==='race_start'?'opening':c.action==='race_finish'?'finish':'racing');
+}
+const roleLabel=c=>EDIT_LABELS[LANG]?.roles[clipRole(c)]||clipRole(c);
+const actionLabel=c=>EDIT_LABELS[LANG]?.actions[c.action]||c.action||c.category||'';
 
 function applyLang(){
   document.querySelectorAll('[data-i18n]').forEach(el => el.textContent = T(el.dataset.i18n));
@@ -818,7 +850,7 @@ async function showResult(id,status){
         `${(r.flags||[]).join(',')} :: ${vreason(r.verdict)}`).join('\n')
         + '\n' + T('tailnote')
     : T('noblocked');
-  lastTl={dur:meta.duration||0,edl,
+  lastTl={dur:meta.duration||0,fps:meta.fps||30,edl,
           blk:reviews.filter(r=>r.verdict?.verdict==='yes')};
   enterEditSession(id,candidates,edl);
   drawTimeline(lastTl.dur,customEdl,lastTl.blk);
@@ -853,6 +885,21 @@ function playAt(t){
   if(p.readyState>=1){ p.currentTime=t; p.play(); }
 }
 
+function seekSourceFrame(t){
+  const p=$('#player'), duration=lastTl?.dur||0;
+  pendingSourceSeek=Math.max(0,Math.min(duration,Number(t)||0));
+  p.pause();
+  const seekPending=()=>{
+    if(pendingSourceSeek===null) return;
+    const target=pendingSourceSeek; pendingSourceSeek=null;
+    try{p.currentTime=target;}catch(_e){}
+  };
+  if(!p.src.includes('/source.mp4')){
+    playTab('source'); p.onloadedmetadata=seekPending;
+  }else if(p.readyState>=1) seekPending();
+  else p.onloadedmetadata=seekPending;
+}
+
 function drawTimeline(dur,edl,blockedRevs){
   const c=$('#tl'),ctx=c.getContext('2d');
   const W=c.width=c.offsetWidth*2,H=c.height=92;
@@ -869,16 +916,15 @@ function drawTimeline(dur,edl,blockedRevs){
 }
 
 let editMode=false, editDirty=false, customEdl=[], candList=[], editJob=null, editNotice=null;
-let nextEdlSeq=1, pendingRow=null, activeEditSeq=null, timelineDrag=null;
+let nextEdlSeq=1, pendingRow=null, activeEditSeq=null, timelineDrag=null, timelineScrub=null;
+let pendingSourceSeek=null;
+let editMarks={start:null,end:null}, keyframeMessageTimer=null;
 const sameClip=(a,b)=>Math.abs(a.start-b.start)<0.001 &&
   Math.abs(a.end-b.end)<0.001;
 const editClip=()=>customEdl.find(c=>c.seq===activeEditSeq)||null;
 function clipBounds(c){return c.bounds||{start:c.start,end:c.end,category:c.category||'race_action'};}
-function clipOverlapsOther(c,start,end){
-  return customEdl.some(x=>x!==c&&start<x.end-0.001&&end>x.start+0.001);
-}
 function updateClip(c,which,value){
-  const b=clipBounds(c), minGap=0.05, minLength=1.0;
+  const b=clipBounds(c), minLength=1.0;
   value=Math.max(b.start,Math.min(b.end,Number(value)));
   if(!Number.isFinite(value)) return false;
   let start=c.start,end=c.end;
@@ -893,11 +939,6 @@ function updateClip(c,which,value){
   }else if(customEdl.some(x=>clipBounds(x).category==='podium'&&x.start<=end+0.001)){
     return false;
   }
-  const prev=customEdl.filter(x=>x!==c&&x.end<=c.start).sort((a,b)=>b.end-a.end)[0];
-  const next=customEdl.filter(x=>x!==c&&x.start>=c.end).sort((a,b)=>a.start-b.start)[0];
-  if(prev&&start<prev.end+minGap-1e-6) return false;
-  if(next&&end>next.start-minGap+1e-6) return false;
-  if(clipOverlapsOther(c,start,end)) return false;
   c.start=Math.round(start*1000)/1000; c.end=Math.round(end*1000)/1000;
   editDirty=true;
   return true;
@@ -923,6 +964,53 @@ function renderClipFields(){
   $('#clipEnd').min=(c.start+1).toFixed(3); $('#clipEnd').max=b.end;
   $('#clipDuration').textContent=`${T('duration')}: ${(c.end-c.start).toFixed(2)}s · ${b.start.toFixed(2)}–${b.end.toFixed(2)}s`;
 }
+function renderKeyframeControls(){
+  $('#markInState').textContent=editMarks.start===null?T('unset'):T('inSet').replace('{0}',fmt(editMarks.start));
+  $('#markOutState').textContent=editMarks.end===null?T('unset'):T('outSet').replace('{0}',fmt(editMarks.end));
+}
+function keyframeMessage(message,success=false){
+  const el=$('#keyframeMessage');
+  clearTimeout(keyframeMessageTimer);
+  el.textContent=message||'';
+  el.style.color=success?'#30d158':'#ff9f0a';
+  if(message) keyframeMessageTimer=setTimeout(()=>{el.textContent='';},3500);
+}
+function clearKeyframeMarks(){
+  editMarks={start:null,end:null};
+  keyframeMessage(''); renderKeyframeControls(); renderPrecisionTimeline();
+}
+function markKeyframe(which){
+  if(!editMode||!lastTl?.dur) return;
+  editMarks[which]=sourcePlayhead();
+  keyframeMessage(''); renderKeyframeControls(); renderPrecisionTimeline();
+  if(editMarks.start===null||editMarks.end===null) return;
+  const start=Math.min(editMarks.start,editMarks.end), end=Math.max(editMarks.start,editMarks.end);
+  if(editMarks.start>=editMarks.end||end-start<1){keyframeMessage(T('keyframeOrder'));return;}
+  const candidate=candList.filter(c=>c.start<=start+0.001&&c.end>=end-0.001)
+    .sort((a,b)=>(a.end-a.start)-(b.end-b.start))[0];
+  const category=candidate?.category||'race_action';
+  if(category==='podium'){
+    const used=customEdl.filter(c=>clipBounds(c).category==='podium')
+      .reduce((n,c)=>n+c.end-c.start,0);
+    if(used+end-start>8.001){keyframeMessage(T('podiumLimit'));return;}
+    if(customEdl.some(c=>clipBounds(c).category!=='podium'&&c.start>=start)){
+      keyframeMessage(T('podiumMustEnd'));return;
+    }
+  }else if(customEdl.some(c=>clipBounds(c).category==='podium'&&c.start<=end)){
+    keyframeMessage(T('podiumMustEnd'));return;
+  }
+  const seq=nextEdlSeq++;
+  const clipMeta=candidate||{start:0,end:lastTl.dur,category,action:'manual',role:'racing'};
+  customEdl.push({start,end,seq,type:category,category,action:clipMeta.action||'manual',
+    role:clipMeta.role||clipRole(clipMeta),
+    bounds:{start:0,end:lastTl.dur,category}});
+  customEdl.sort((a,b)=>a.start-b.start);
+  activeEditSeq=seq; editDirty=true; editNotice=null;
+  editMarks={start:null,end:null};
+  renderEdl(customEdl); renderCands(); renderPrecisionTimeline();
+  selectEditClip(seq,true);
+  keyframeMessage(T('keyframeAdded'),true); renderKeyframeControls();
+}
 function renderPrecisionTimeline(){
   const track=$('#editTrack'), duration=lastTl?.dur||0;
   if(!track||!duration) return;
@@ -945,12 +1033,23 @@ function renderPrecisionTimeline(){
     el.dataset.seq=c.seq; el.style.left=`${c.start/duration*100}%`;
     el.style.width=`${Math.max(0.04,(c.end-c.start)/duration*100)}%`;
     el.title=`${fmt(c.start)}–${fmt(c.end)} · ${(c.end-c.start).toFixed(2)}s`;
-    el.innerHTML='<span class="handle in" data-edge="start"></span><span class="handle out" data-edge="end"></span>';
+    el.innerHTML=`<span class="handle in" data-edge="start" title="${escapeHtml(T('markIn'))}"></span><span class="handle out" data-edge="end" title="${escapeHtml(T('markOut'))}"></span>`;
     track.appendChild(el);
   });
+  for(const edge of ['start','end']){
+    const point=editMarks[edge];
+    if(point===null) continue;
+    const marker=document.createElement('span');
+    const label=edge==='start'?T('markIn'):T('markOut');
+    marker.className=`keyframe-marker ${edge==='start'?'in':'out'}`;
+    marker.style.left=`${point/duration*100}%`;
+    marker.title=`${label}: ${fmt(point)}`;
+    track.appendChild(marker);
+  }
   const head=document.createElement('span'); head.className='playhead'; head.id='editPlayhead';
   head.style.left=`${(Number($('#player').currentTime)||0)/duration*100}%`; track.appendChild(head);
   $('#editPlayTime').textContent=fmt(Number($('#player').currentTime)||0);
+  renderKeyframeControls();
   renderClipFields();
 }
 function updateEditPlayhead(){
@@ -1001,7 +1100,7 @@ function renderEdl(edl){
       ?`<button class="ghost" style="padding:1px 7px;font-size:10px" data-remove-seq="${c.seq}">✕</button>`:'';
     const selected=editMode&&c.seq===activeEditSeq?' active':'';
     return `<tr class="click edl-row${selected}" data-seq="${editMode?c.seq:''}" data-index="${i}" data-start="${c.start}" data-end="${c.end}">
-      <td>${editMode?del:''}</td><td>${editMode?c.seq:i+1}</td><td>${fmt(c.start)} – ${fmt(c.end)}</td>
+      <td>${editMode?del:''}</td><td>${editMode?c.seq:i+1}</td><td>${escapeHtml(roleLabel(c))}</td><td>${fmt(c.start)} – ${fmt(c.end)}</td>
       <td>${(c.end-c.start).toFixed(1)}s</td><td>${fmt(pos)}</td></tr>`;
   }).join('');
   $('#edl tbody').onclick=e=>{
@@ -1040,7 +1139,7 @@ function rmClip(button,e){
     editDirty=true;
     const b=clipBounds(removed);
     let candidate=candList.find(x=>Math.abs(x.start-b.start)<0.01&&Math.abs(x.end-b.end)<0.01);
-    if(!candidate){candidate={start:b.start,end:b.end,score:'–',category:b.category,action:'unknown'};candList.unshift(candidate);}
+    if(!candidate){candidate={start:b.start,end:b.end,score:'–',category:b.category,action:removed.action||'unknown',role:removed.role};candList.unshift(candidate);}
     candidate.seq=removed.seq;
     activeEditSeq=customEdl[0]?.seq||null;
     editNotice=c;
@@ -1090,11 +1189,9 @@ function addClip(i){
   }else if(customEdl.some(x=>clipBounds(x).category==='podium'&&x.start<=end)){
     $('#jdetail').textContent=T('podiumMustEnd');return;
   }
-  if(customEdl.some(x=>start<x.end-0.001&&end>x.start+0.001)){
-    $('#jdetail').textContent=T('trimBoundsError');return;
-  }
   const seq=c.seq||nextEdlSeq++;
-  customEdl.push({start,end,seq,bounds:{start:c.start,end:c.end,category:c.category||'race_action'}});
+  customEdl.push({start,end,seq,type:c.category||'race_action',action:c.action||'unknown',
+    role:c.role||clipRole(c),bounds:{start:c.start,end:c.end,category:c.category||'race_action'}});
   editDirty=true;
   customEdl.sort((a,b)=>a.start-b.start);
   activeEditSeq=seq;
@@ -1117,6 +1214,7 @@ function renderCands(){
         :`<button class="ghost" style="padding:1px 8px;font-size:11px"
            onclick="addClip(${i});event.stopPropagation()">+</button>`}</td>
       <td>${fmt(c.start)} – ${fmt(c.end)}</td>
+      <td>${escapeHtml(actionLabel(c))}</td>
       <td>${(c.end-c.start).toFixed(1)}s</td><td>${c.score}</td></tr>`;
   }).join('');
 }
@@ -1124,11 +1222,15 @@ function renderCands(){
 function enterEditSession(job,cands,edl){
   if(curJob!==job||!Array.isArray(cands)||!Array.isArray(edl)) return false;
   candList=cands;
+  editMarks={start:null,end:null};
   customEdl=edl.map((c,i)=>{
     const candidate=cands.filter(x=>x.start<=c.start+0.01&&x.end>=c.end-0.01)
       .sort((a,b)=>(a.end-a.start)-(b.end-b.start))[0];
-    return {start:c.start,end:c.end,seq:i+1,
-      bounds:candidate?{start:candidate.start,end:candidate.end,category:candidate.category}: {start:c.start,end:c.end,category:c.type||'race_action'}};
+    const category=c.type||candidate?.category||'race_action';
+    const action=c.action||candidate?.action||'unknown';
+    return {start:c.start,end:c.end,seq:i+1,type:category,category,action,
+      role:c.role||candidate?.role||clipRole({type:category,category,action}),
+      bounds:candidate?{start:candidate.start,end:candidate.end,category:candidate.category}: {start:c.start,end:c.end,category}};
   });
   nextEdlSeq=edl.length+1;
   activeEditSeq=customEdl[0]?.seq||null;
@@ -1215,6 +1317,21 @@ $('#rerender').onclick=rerender;
 $('#editZoom').oninput=renderPrecisionTimeline;
 $('#player').addEventListener('timeupdate',updateEditPlayhead);
 $('#player').addEventListener('seeked',updateEditPlayhead);
+$('#player').addEventListener('seeking',updateEditPlayhead);
+function timelineTimeAt(e){
+  const track=$('#editTrack'),duration=lastTl?.dur||0;
+  if(!duration||!track.clientWidth) return 0;
+  const x=e.clientX-track.getBoundingClientRect().left;
+  return Math.max(0,Math.min(duration,x/track.clientWidth*duration));
+}
+function scrubTimelineTo(t){
+  if(!timelineScrub) return;
+  timelineScrub.time=t;
+  if(!timelineScrub.raf) timelineScrub.raf=requestAnimationFrame(()=>{
+    const scrub=timelineScrub;
+    if(scrub){scrub.raf=0;seekSourceFrame(scrub.time);}
+  });
+}
 $('#editTrack').addEventListener('pointerdown',e=>{
   const track=$('#editTrack'), duration=lastTl?.dur||0;
   if(!duration) return;
@@ -1230,13 +1347,17 @@ $('#editTrack').addEventListener('pointerdown',e=>{
   const clipEl=e.target.closest('.edit-clip');
   if(clipEl){
     const c=customEdl.find(x=>x.seq===Number(clipEl.dataset.seq));
-    if(c){selectEditClip(c.seq);playAt(c.start);}
-    return;
+    if(c) selectEditClip(c.seq);
   }
-  const rect=track.getBoundingClientRect();
-  playAt(Math.max(0,Math.min(duration,(e.clientX-rect.left)/rect.width*duration)));
+  timelineScrub={pointerId:e.pointerId,time:timelineTimeAt(e),raf:0};
+  track.setPointerCapture(e.pointerId);
+  scrubTimelineTo(timelineScrub.time);
+  e.preventDefault();
 });
 $('#editTrack').addEventListener('pointermove',e=>{
+  if(timelineScrub?.pointerId===e.pointerId){
+    scrubTimelineTo(timelineTimeAt(e)); e.preventDefault(); return;
+  }
   if(!timelineDrag) return;
   const c=customEdl.find(x=>x.seq===timelineDrag.seq), duration=lastTl?.dur||0;
   if(!c||!duration) return;
@@ -1250,6 +1371,13 @@ $('#editTrack').addEventListener('pointermove',e=>{
   e.preventDefault();
 });
 const finishTimelineDrag=e=>{
+  if(timelineScrub?.pointerId===e.pointerId){
+    const scrub=timelineScrub;
+    if(scrub.raf) cancelAnimationFrame(scrub.raf);
+    seekSourceFrame(scrub.time); timelineScrub=null;
+    if($('#editTrack').hasPointerCapture(e.pointerId)) $('#editTrack').releasePointerCapture(e.pointerId);
+    return;
+  }
   if(!timelineDrag) return;
   const changed=timelineDrag.changed; timelineDrag=null;
   if($('#editTrack').hasPointerCapture(e.pointerId)) $('#editTrack').releasePointerCapture(e.pointerId);
@@ -1261,14 +1389,16 @@ $('#editTrack').addEventListener('pointercancel',finishTimelineDrag);
 $('#editTrack').addEventListener('keydown',e=>{
   if(!['ArrowLeft','ArrowRight'].includes(e.key)) return;
   e.preventDefault();
-  const step=e.shiftKey?1:0.1;
+  const step=e.shiftKey?1:1/(lastTl?.fps||30);
   playAt(Math.max(0,Math.min(lastTl?.dur||0,sourcePlayhead()+(e.key==='ArrowLeft'?-step:step))));
 });
 document.querySelectorAll('[data-nudge-edge]').forEach(b=>b.onclick=()=>{
   const [which,delta]=b.dataset.nudgeEdge.split(':');
   const c=editClip(); if(c) setActiveEdge(which,c[which==='start'?'start':'end']+Number(delta));
 });
-document.querySelectorAll('[data-set-edge]').forEach(b=>b.onclick=()=>setActiveEdge(b.dataset.setEdge,sourcePlayhead()));
+$('#markInBtn').onclick=()=>markKeyframe('start');
+$('#markOutBtn').onclick=()=>markKeyframe('end');
+$('#clearMarksBtn').onclick=clearKeyframeMarks;
 $('#clipStart').onchange=e=>setActiveEdge('start',Number(e.target.value));
 $('#clipEnd').onchange=e=>setActiveEdge('end',Number(e.target.value));
 $('#drop').onclick=()=>{if(!uploadBusy) $('#file').click();};
@@ -1291,7 +1421,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&$('#modal').style.display==='flex') mCancel();
   if(!editMode||e.metaKey||e.ctrlKey||e.altKey||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
   const key=e.key.toLowerCase(), edge=key==='i'?'start':key==='o'?'end':null;
-  if(edge){e.preventDefault();setActiveEdge(edge,sourcePlayhead());}
+  if(edge){e.preventDefault();markKeyframe(edge);}
 });
 
 document.addEventListener('click',e=>{
